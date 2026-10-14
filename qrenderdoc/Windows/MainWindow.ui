@@ -64,6 +64,8 @@
     <addaction name="action_Manage_Extensions"/>
     <addaction name="action_Manage_Remote_Servers"/>
     <addaction name="separator"/>
+    <addaction name="action_MCP_Server"/>
+    <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menu_File">
     <property name="title">
@@ -376,6 +378,11 @@
   <action name="action_Manage_Remote_Servers">
    <property name="text">
     <string>&amp;Manage Remote Servers</string>
+   </property>
+  </action>
+  <action name="action_MCP_Server">
+   <property name="text">
+    <string>&MCP Server</string>
    </property>
   </action>
   <action name="action_View_Documentation">

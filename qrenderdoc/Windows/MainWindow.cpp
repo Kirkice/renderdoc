@@ -37,6 +37,10 @@
 #include <QShortcut>
 #include <QToolButton>
 #include <QToolTip>
+#include "Code/AI/MCPHttpServer.h"
+#include "Code/AI/MCPQueryAdapter.h"
+#include "Code/AI/MCPToolRegistry.h"
+#include "Code/AI/MCPTools.h"
 #include "Code/QRDUtils.h"
 #include "Code/Resources.h"
 #include "Code/pyrenderdoc/PythonContext.h"
@@ -49,6 +53,7 @@
 #include "Windows/Dialogs/CrashDialog.h"
 #include "Windows/Dialogs/ExtensionManager.h"
 #include "Windows/Dialogs/LiveCapture.h"
+#include "Windows/Dialogs/MCPStatusDialog.h"
 #include "Windows/Dialogs/RemoteManager.h"
 #include "Windows/Dialogs/SettingsDialog.h"
 #include "Windows/Dialogs/SuggestRemoteDialog.h"
@@ -134,6 +139,31 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   setAcceptDrops(true);
 
   QObject::connect(ui->menu_Tools, &QMenu::aboutToShow, this, &MainWindow::updateToolsMenuOptions);
+
+  // Native AI/MCP service layer. The adapter owns all capture/replay access, the
+  // registry owns the tool contracts, and the HTTP server exposes them over a
+  // loopback-only socket. They are created unconditionally so the status dialog can
+  // always present the state (and start the server on demand), but the listener is
+  // only opened at startup when the user has enabled it in the settings.
+  m_MCPAdapter = new MCP::QueryAdapter(&m_Ctx);
+  m_MCPRegistry = new MCP::ToolRegistry();
+  MCP::RegisterCoreTools(*m_MCPRegistry, *m_MCPAdapter);
+
+  m_MCPServer = new MCP::HttpServer(this);
+  m_MCPServer->SetRegistry(m_MCPRegistry);
+  m_MCPServer->SetCaptureContext(&m_Ctx);
+
+  if(ctx.Config().MCP_Enabled)
+  {
+    const int port = ctx.Config().MCP_Port;
+    QString error;
+    if(!m_MCPServer->Start(quint16(port & 0xffff), error))
+    {
+      const QByteArray msg =
+          QString("Failed to start MCP server on 127.0.0.1:%1: %2").arg(port).arg(error).toUtf8();
+      RENDERDOC_LogMessage(LogType::Error, "qrenderdoc", __FILE__, __LINE__, msg.constData());
+    }
+  }
 
   QObject::connect(ui->action_Load_Default_Layout, &QAction::triggered, this,
                    &MainWindow::loadLayout_triggered);
@@ -611,6 +641,20 @@ MainWindow::~MainWindow()
   m_NetManagerThread->thread()->quit();
 
   m_Ctx.Replay().DisconnectFromRemoteServer();
+
+  // Tear down the MCP service layer before the widgets go away: stop listening,
+  // then drop the transport, the tool registry and finally the query adapter
+  // (which holds the capture context binding).
+  if(m_MCPServer != NULL)
+  {
+    m_MCPServer->Stop();
+    delete m_MCPServer;
+    m_MCPServer = NULL;
+  }
+  delete m_MCPRegistry;
+  m_MCPRegistry = NULL;
+  delete m_MCPAdapter;
+  m_MCPAdapter = NULL;
 
   // explicitly delete our children here, so that the MainWindow is still alive while they are
   // closing.
@@ -2998,6 +3042,12 @@ void MainWindow::on_action_Settings_triggered()
 {
   SettingsDialog about(m_Ctx, this);
   RDDialog::show(&about);
+}
+
+void MainWindow::on_action_MCP_Server_triggered()
+{
+  MCPStatusDialog mcp(m_Ctx, m_MCPServer, this);
+  RDDialog::show(&mcp);
 }
 
 void MainWindow::on_action_View_Documentation_triggered()

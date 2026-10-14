@@ -51,6 +51,13 @@ class CaptureDialog;
 class LiveCapture;
 class QNetworkAccessManager;
 
+namespace MCP
+{
+class HttpServer;
+class ToolRegistry;
+class QueryAdapter;
+}
+
 class NetworkWorker : public QObject
 {
 private:
@@ -179,6 +186,7 @@ private slots:
   void on_action_Manage_Extensions_triggered();
   void on_action_Manage_Remote_Servers_triggered();
   void on_action_Settings_triggered();
+  void on_action_MCP_Server_triggered();
   void on_action_View_Documentation_triggered();
   void on_action_Source_on_GitHub_triggered();
   void on_action_Build_Release_Downloads_triggered();
@@ -275,6 +283,14 @@ private:
   LambdaThread *m_NetManagerThread;
   QMap<QUrl, std::function<void(QString)>> m_NetworkFailCallbacks;
   QMap<QUrl, std::function<void(QByteArray)>> m_NetworkCompleteCallbacks;
+
+  // Native AI/MCP service layer. The registry and adapter own the tools and the
+  // capture-facing query plumbing; the HTTP server only exposes them over the
+  // loopback interface. Owned by the MainWindow and started/stopped by the
+  // on_action_MCP_Server_triggered() slot and the MCP status dialog.
+  MCP::QueryAdapter *m_MCPAdapter = NULL;
+  MCP::ToolRegistry *m_MCPRegistry = NULL;
+  MCP::HttpServer *m_MCPServer = NULL;
 
   bool m_messageAlternate = false;
 

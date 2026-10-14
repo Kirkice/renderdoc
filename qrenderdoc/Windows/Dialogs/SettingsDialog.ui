@@ -473,7 +473,70 @@ This option overrides that and will always replay locally if the local context i
             </property>
            </widget>
           </item>
+          <item row="19" column="0">
+           <widget class="QLabel" name="mcpEnabledLabel">
+            <property name="toolTip">
+             <string>Starts a local Model Context Protocol server bound to 127.0.0.1 so that AI clients (e.g. the RenderDoc VS Code extension, Claude, Cursor) can query the currently loaded capture using read-only tools.</string>
+            </property>
+            <property name="text">
+             <string>Enable the local MCP server for AI agents</string>
+            </property>
+           </widget>
+          </item>
           <item row="19" column="1">
+           <widget class="QCheckBox" name="MCP_Enabled">
+            <property name="toolTip">
+             <string>Starts a local Model Context Protocol server bound to 127.0.0.1 so that AI clients (e.g. the RenderDoc VS Code extension, Claude, Cursor) can query the currently loaded capture using read-only tools.</string>
+            </property>
+            <property name="text">
+             <string/>
+            </property>
+           </widget>
+          </item>
+          <item row="20" column="0">
+           <widget class="QLabel" name="mcpPortLabel">
+            <property name="toolTip">
+             <string>The loopback TCP port the local MCP server listens on. MCP clients connect to http://127.0.0.1 on this port.</string>
+            </property>
+            <property name="text">
+             <string>MCP server port</string>
+            </property>
+           </widget>
+          </item>
+          <item row="20" column="1">
+           <widget class="QSpinBox" name="MCP_Port">
+            <property name="toolTip">
+             <string>The loopback TCP port the local MCP server listens on. MCP clients connect to http://127.0.0.1 on this port.</string>
+            </property>
+            <property name="minimum">
+             <number>1024</number>
+            </property>
+            <property name="maximum">
+             <number>65535</number>
+            </property>
+           </widget>
+          </item>
+          <item row="21" column="0">
+           <widget class="QLabel" name="mcpSensitiveLabel">
+            <property name="toolTip">
+             <string>Allows MCP tools to return potentially sensitive data such as raw shader source, constant buffer contents, buffer bytes and captured vertex data. Only enable this when you trust the connected AI client.</string>
+            </property>
+            <property name="text">
+             <string>Allow MCP tools to return sensitive capture data</string>
+            </property>
+           </widget>
+          </item>
+          <item row="21" column="1">
+           <widget class="QCheckBox" name="MCP_AllowSensitiveData">
+            <property name="toolTip">
+             <string>Allows MCP tools to return potentially sensitive data such as raw shader source, constant buffer contents, buffer bytes and captured vertex data. Only enable this when you trust the connected AI client.</string>
+            </property>
+            <property name="text">
+             <string/>
+            </property>
+           </widget>
+          </item>
+          <item row="22" column="1">
            <spacer name="verticalSpacer">
             <property name="orientation">
              <enum>Qt::Vertical</enum>

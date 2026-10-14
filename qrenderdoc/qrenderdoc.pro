@@ -257,7 +257,15 @@ SOURCES += Code/qrenderdoc.cpp \
     Windows/Dialogs/AnalyticsPromptDialog.cpp \
     Windows/Dialogs/AxisMappingDialog.cpp \
     Windows/Dialogs/CameraControlsDialog.cpp \
-    Windows/Dialogs/ProjectionGuessDialog.cpp
+    Windows/Dialogs/ProjectionGuessDialog.cpp \
+    Code/AI/MCPTypes.cpp \
+    Code/AI/MCPToolRegistry.cpp \
+    Code/AI/MCPQueryAdapter.cpp \
+    Code/AI/MCPTools.cpp \
+    Code/AI/MCPHttpServer.cpp \
+    Code/AI/MCPTests.cpp \
+    Code/AI/MCPAnalysisModel.cpp \
+    Windows/Dialogs/MCPStatusDialog.cpp
 HEADERS += Code/CaptureContext.h \
     Code/qprocessinfo.h \
     Code/ReplayManager.h \
@@ -348,7 +356,14 @@ HEADERS += Code/CaptureContext.h \
     Windows/Dialogs/AnalyticsPromptDialog.h \
     Windows/Dialogs/AxisMappingDialog.h \
     Windows/Dialogs/CameraControlsDialog.h \
-    Windows/Dialogs/ProjectionGuessDialog.h
+    Windows/Dialogs/ProjectionGuessDialog.h \
+    Code/AI/MCPTypes.h \
+    Code/AI/MCPToolRegistry.h \
+    Code/AI/MCPQueryAdapter.h \
+    Code/AI/MCPTools.h \
+    Code/AI/MCPAnalysisModel.h \
+    Code/AI/MCPHttpServer.h \
+    Windows/Dialogs/MCPStatusDialog.h
 FORMS    += Windows/Dialogs/AboutDialog.ui \
     Windows/Dialogs/CrashDialog.ui \
     Windows/Dialogs/UpdateDialog.ui \

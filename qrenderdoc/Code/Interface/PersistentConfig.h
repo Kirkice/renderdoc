@@ -784,7 +784,35 @@ DECLARE_REFLECTION_STRUCT(BugReport);
       "Defaults to ``False``."                                                                     \
       ""                                                                                           \
       ":type: bool");                                                                              \
-  CONFIG_SETTING_VAL(public, bool, bool, ResourceUsage_SplitByMarker, false)
+  CONFIG_SETTING_VAL(public, bool, bool, ResourceUsage_SplitByMarker, false)                       \
+                                                                                                    \
+  DOCUMENT(                                                                                        \
+      "``True`` if the built-in MCP (Model Context Protocol) server should be started when "       \
+      "qrenderdoc launches. The server always binds to the loopback interface only, so it is "     \
+      "never reachable from another machine.\n"                                                    \
+      "\n"                                                                                         \
+      "Defaults to ``False`` so the server is strictly opt-in."                                    \
+      ""                                                                                           \
+      ":type: bool");                                                                              \
+  CONFIG_SETTING_VAL(public, bool, bool, MCP_Enabled, false)                                       \
+                                                                                                   \
+  DOCUMENT(                                                                                        \
+      "The TCP port the MCP server listens on, on 127.0.0.1. Changing this only takes effect the " \
+      "next time the server is started.\n"                                                         \
+      "\n:"                                                                                        \
+      "Defaults to ``38967``."                                                                     \
+      ""                                                                                           \
+      ":type: int");                                                                               \
+  CONFIG_SETTING_VAL(public, int, int, MCP_Port, 38967)                                            \
+                                                                                                   \
+  DOCUMENT(                                                                                        \
+      "``True`` if MCP tools are allowed to return bulk capture data such as raw buffer and "      \
+      "texture contents or shader source text. This is the sensitive-data boundary: when "         \
+      "``False`` (the default) those tools report metadata only, so a local client cannot use "    \
+      "them to exfiltrate capture contents.\n"                                                     \
+      ""                                                                                           \
+      ":type: bool");                                                                              \
+  CONFIG_SETTING_VAL(public, bool, bool, MCP_AllowSensitiveData, false)
 
 DOCUMENT(R"(The formatting mode used when displaying fields marked as Offsets or Sizes.
 

@@ -200,6 +200,10 @@ SettingsDialog::SettingsDialog(ICaptureContext &ctx, QWidget *parent)
 
   ui->AlwaysReplayLocally->setChecked(m_Ctx.Config().AlwaysReplayLocally);
 
+  ui->MCP_Enabled->setChecked(m_Ctx.Config().MCP_Enabled);
+  ui->MCP_Port->setValue(m_Ctx.Config().MCP_Port);
+  ui->MCP_AllowSensitiveData->setChecked(m_Ctx.Config().MCP_AllowSensitiveData);
+
   {
     const SDObject *getPaths = RENDERDOC_GetConfigSetting("DXBC.Debug.SearchDirPaths");
     if(!getPaths)
@@ -564,6 +568,36 @@ void SettingsDialog::on_Font_PreferMonospaced_toggled(bool checked)
 void SettingsDialog::on_AlwaysReplayLocally_toggled(bool checked)
 {
   m_Ctx.Config().AlwaysReplayLocally = ui->AlwaysReplayLocally->isChecked();
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_MCP_Enabled_toggled(bool checked)
+{
+  if(m_Init)
+    return;
+
+  m_Ctx.Config().MCP_Enabled = ui->MCP_Enabled->isChecked();
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_MCP_Port_valueChanged(int value)
+{
+  if(m_Init)
+    return;
+
+  m_Ctx.Config().MCP_Port = value;
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_MCP_AllowSensitiveData_toggled(bool checked)
+{
+  if(m_Init)
+    return;
+
+  m_Ctx.Config().MCP_AllowSensitiveData = ui->MCP_AllowSensitiveData->isChecked();
 
   m_Ctx.Config().Save();
 }

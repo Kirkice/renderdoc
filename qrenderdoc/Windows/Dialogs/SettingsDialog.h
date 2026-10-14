@@ -69,6 +69,9 @@ private slots:
   void on_CheckUpdate_AllowChecks_toggled(bool checked);
   void on_Font_PreferMonospaced_toggled(bool checked);
   void on_AlwaysReplayLocally_toggled(bool checked);
+  void on_MCP_Enabled_toggled(bool checked);
+  void on_MCP_Port_valueChanged(int value);
+  void on_MCP_AllowSensitiveData_toggled(bool checked);
   void on_analyticsAutoSubmit_toggled(bool checked);
   void on_analyticsManualCheck_toggled(bool checked);
   void on_analyticsOptOut_toggled(bool checked);
