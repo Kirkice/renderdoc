@@ -28,6 +28,8 @@
 #include <QFontDatabase>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -42,14 +44,18 @@ MCPStatusDialog::MCPStatusDialog(ICaptureContext &ctx, MCP::HttpServer *server, 
 
   m_State = new QLabel(this);
   m_Endpoint = new QLabel(this);
+  m_AccessToken = new QLabel(this);
   m_Sessions = new QLabel(this);
   m_Tools = new QLabel(this);
   m_LastError = new QLabel(this);
 
-  // The endpoint is copied verbatim into an MCP client, so show it in a fixed-width
-  // font and make it selectable rather than relying purely on the copy button.
+  // The connection fields are copied into an MCP client, so show them in a
+  // fixed-width font and make them selectable rather than relying purely on the
+  // copy button. The token is intentionally runtime-only and changes on restart.
   m_Endpoint->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+  m_AccessToken->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
   m_Endpoint->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+  m_AccessToken->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
   m_LastError->setWordWrap(true);
 
   QGridLayout *grid = new QGridLayout();
@@ -57,17 +63,19 @@ MCPStatusDialog::MCPStatusDialog(ICaptureContext &ctx, MCP::HttpServer *server, 
   grid->addWidget(m_State, 0, 1);
   grid->addWidget(new QLabel(tr("Endpoint:"), this), 1, 0);
   grid->addWidget(m_Endpoint, 1, 1);
-  grid->addWidget(new QLabel(tr("Active sessions:"), this), 2, 0);
-  grid->addWidget(m_Sessions, 2, 1);
-  grid->addWidget(new QLabel(tr("Registered tools:"), this), 3, 0);
-  grid->addWidget(m_Tools, 3, 1);
-  grid->addWidget(new QLabel(tr("Last error:"), this), 4, 0);
-  grid->addWidget(m_LastError, 4, 1);
+  grid->addWidget(new QLabel(tr("Bearer token:"), this), 2, 0);
+  grid->addWidget(m_AccessToken, 2, 1);
+  grid->addWidget(new QLabel(tr("Active sessions:"), this), 3, 0);
+  grid->addWidget(m_Sessions, 3, 1);
+  grid->addWidget(new QLabel(tr("Registered tools:"), this), 4, 0);
+  grid->addWidget(m_Tools, 4, 1);
+  grid->addWidget(new QLabel(tr("Last error:"), this), 5, 0);
+  grid->addWidget(m_LastError, 5, 1);
   grid->setColumnStretch(1, 1);
 
   m_Toggle = new QPushButton(tr("Start"), this);
   m_Refresh = new QPushButton(tr("Refresh"), this);
-  m_Copy = new QPushButton(tr("Copy endpoint"), this);
+  m_Copy = new QPushButton(tr("Copy connection"), this);
 
   connect(m_Toggle, &QPushButton::clicked, this, &MCPStatusDialog::on_toggle_clicked);
   connect(m_Refresh, &QPushButton::clicked, this, &MCPStatusDialog::on_refresh_clicked);
@@ -96,6 +104,7 @@ void MCPStatusDialog::refresh()
   {
     m_State->setText(tr("unavailable"));
     m_Endpoint->setText(tr("(not listening)"));
+    m_AccessToken->setText(tr("(not listening)"));
     m_Sessions->setText(QString());
     m_Tools->setText(QString());
     m_LastError->setText(tr("the MCP server is not available in this build"));
@@ -115,9 +124,15 @@ void MCPStatusDialog::refresh()
     m_State->setText(tr("disabled"));
 
   if(status.running && !status.endpoint.isEmpty())
+  {
     m_Endpoint->setText(status.endpoint);
+    m_AccessToken->setText(m_Server->AccessToken());
+  }
   else
+  {
     m_Endpoint->setText(tr("(not listening)"));
+    m_AccessToken->setText(tr("(not listening)"));
+  }
 
   m_Sessions->setText(QString::number(status.activeSessions));
   m_Tools->setText(QString::number(status.registeredTools));
@@ -180,11 +195,22 @@ void MCPStatusDialog::on_refresh_clicked()
 
 void MCPStatusDialog::on_copy_clicked()
 {
-  const QString endpoint = m_Endpoint->text();
-  if(endpoint.isEmpty())
+  if(m_Server == NULL || !m_Server->IsRunning())
     return;
+
+  const QString endpoint = m_Endpoint->text();
+  const QString token = m_Server->AccessToken();
+  if(endpoint.isEmpty() || token.isEmpty())
+    return;
+
+  QJsonObject headers;
+  headers[QStringLiteral("Authorization")] = QStringLiteral("Bearer %1").arg(token);
+
+  QJsonObject config;
+  config[QStringLiteral("url")] = endpoint;
+  config[QStringLiteral("headers")] = headers;
 
   QClipboard *clipboard = QApplication::clipboard();
   if(clipboard != NULL)
-    clipboard->setText(endpoint);
+    clipboard->setText(QString::fromUtf8(QJsonDocument(config).toJson(QJsonDocument::Indented)));
 }

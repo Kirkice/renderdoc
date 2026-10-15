@@ -1229,6 +1229,9 @@ ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
   if(call.IsCancelled())
     return ToolResult::Failure(Error(ErrorCode::Cancelled, "tool call cancelled"));
 
+  if(call.IsExpired())
+    return ToolResult::Failure(Error(ErrorCode::DeadlineExceeded, "tool call deadline exceeded"));
+
   IReplayManager &replay = m_Ctx->Replay();
 
   // Without a capture access handle the replay thread isn't ready for the switch
@@ -1266,6 +1269,12 @@ ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
         return;
       }
 
+      if(call.IsExpired())
+      {
+        result = ToolResult::Failure(Error(ErrorCode::DeadlineExceeded, "tool call deadline exceeded"));
+        return;
+      }
+
       try
       {
         result = fn(*r);
@@ -1287,6 +1296,9 @@ ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
     return ToolResult::Failure(Error(ErrorCode::InternalError,
         QStringLiteral("failed to dispatch replay query: %1").arg(QString::fromUtf8(e.what()))));
   }
+
+  if(call.IsExpired())
+    return ToolResult::Failure(Error(ErrorCode::DeadlineExceeded, "tool call deadline exceeded"));
 
   if(!invoked)
   {
@@ -3719,8 +3731,7 @@ ToolResult QueryAdapter::BuildInvestigationReport(const QString &format, int lim
       format.compare(QStringLiteral("json"), Qt::CaseInsensitive) == 0 ? QStringLiteral("json")
                                                                       : QStringLiteral("markdown");
   const int cap = limit > 200 ? 200 : (limit > 0 ? limit : 20);
-  const QString generatedAt =
-      QDateTime::currentDateTimeUtc().toString(Qt::ISODate) + QStringLiteral("Z");
+  const QString generatedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
 
   const CaptureSnapshot snap = Snapshot();
 

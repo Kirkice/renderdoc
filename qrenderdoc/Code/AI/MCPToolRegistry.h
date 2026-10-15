@@ -24,7 +24,9 @@
 
 #pragma once
 
+#include <QAtomicInt>
 #include <QJsonObject>
+#include <QSharedPointer>
 #include <QMap>
 #include <QString>
 #include <functional>
@@ -57,12 +59,19 @@ private:
 struct CallContext
 {
   ICaptureContext *ctx = NULL;
-  // Cooperative cancellation. Tools that issue long replay work should poll this.
+  // Legacy non-owning cancellation flag, retained for direct/unit-test callers.
+  // Transport callers must use cancellationState so that a disconnect cannot
+  // leave replay work observing a dangling stack pointer.
   const volatile bool *cancelled = NULL;
+  QSharedPointer<QAtomicInt> cancellationState;
   // Soft deadline in milliseconds since epoch, or 0 for "no deadline".
   qint64 deadlineMs = 0;
 
-  bool IsCancelled() const { return cancelled != NULL && *cancelled; }
+  bool IsCancelled() const
+  {
+    return (cancelled != NULL && *cancelled) ||
+           (!cancellationState.isNull() && cancellationState->loadAcquire() != 0);
+  }
   bool IsExpired() const;
 };
 

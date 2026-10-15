@@ -24,7 +24,13 @@
 
 #include "MCPHttpServer.h"
 
+#include "QRDUtils.h"
+
 #include <QDateTime>
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QPointer>
+#include <QRunnable>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -34,6 +40,8 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QUuid>
+
+#include <functional>
 
 namespace MCP
 {
@@ -52,6 +60,18 @@ QJsonObject MakeError(const QJsonValue &id, ErrorCode code, const QString &messa
   return resp;
 }
 
+static const int kMaxHeaderBytes = 64 * 1024;
+static const int kMaxBodyBytes = 8 * 1024 * 1024;
+static const int kMaxConnections = 32;
+static const int kMaxPendingRequestsPerSocket = 8;
+static const qint64 kMaxPendingBytesPerSocket = 16 * 1024 * 1024;
+static const int kMaxPendingRequests = 64;
+static const qint64 kMaxPendingBytes = 64 * 1024 * 1024;
+static const int kMaxInFlightTools = 2;
+static const int kMaxSessions = 128;
+static const qint64 kSessionIdleTimeoutMs = 30 * 60 * 1000;
+static const qint64 kToolDeadlineMs = 60 * 1000;
+
 QString StatusText(int status)
 {
   switch(status)
@@ -60,8 +80,12 @@ QString StatusText(int status)
     case 202: return QStringLiteral("Accepted");
     case 204: return QStringLiteral("No Content");
     case 400: return QStringLiteral("Bad Request");
+    case 401: return QStringLiteral("Unauthorized");
     case 404: return QStringLiteral("Not Found");
     case 405: return QStringLiteral("Method Not Allowed");
+    case 413: return QStringLiteral("Payload Too Large");
+    case 415: return QStringLiteral("Unsupported Media Type");
+    case 429: return QStringLiteral("Too Many Requests");
     default: return QStringLiteral("Unknown");
   }
 }
@@ -70,11 +94,23 @@ QString JsonToCompact(const QJsonObject &obj)
 {
   return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
+
+class LambdaRunnable : public QRunnable
+{
+public:
+  explicit LambdaRunnable(const std::function<void()> &func) : m_Func(func) {}
+
+  void run() override { m_Func(); }
+
+private:
+  std::function<void()> m_Func;
+};
 }    // namespace
 
 HttpServer::HttpServer(QObject *parent) : QObject(parent)
 {
   m_Server = new QTcpServer(this);
+  m_ToolPool.setMaxThreadCount(kMaxInFlightTools);
   connect(m_Server, &QTcpServer::newConnection, this, &HttpServer::OnNewConnection);
 }
 
@@ -93,12 +129,14 @@ bool HttpServer::Start(quint16 port, QString &errorOut)
 {
   errorOut.clear();
 
-  // Fresh start: tear down any previous listener and sessions so restarting on a
-  // different port cannot leave stale state behind.
-  if(m_Server != NULL && m_Server->isListening())
-  {
-    m_Server->close();
-  }
+  // A restart must also cancel in-flight work and close already accepted
+  // keep-alive sockets. Closing only the listener would leave those clients
+  // connected with an invalidated session/token generation.
+  if(IsRunning() || !m_Buffers.isEmpty())
+    Stop();
+
+  m_Stopping = false;
+  m_Generation++;
 
   // QHostAddress::LocalHost resolves to the loopback interface only, so there is
   // no way for this server to be reached from off-box even if a firewall is off.
@@ -110,34 +148,66 @@ bool HttpServer::Start(quint16 port, QString &errorOut)
   }
 
   m_Port = m_Server->serverPort();
-  m_LastError.clear();
+  {
+    QMutexLocker lock(&m_Lock);
+    m_AccessToken = QUuid::createUuid().toString();
+    m_AccessToken.remove(QLatin1Char('{'));
+    m_AccessToken.remove(QLatin1Char('}'));
+    m_LastError.clear();
+  }
   return true;
 }
 
 void HttpServer::Stop()
 {
+  // Close the admission gate first. All workers are joined below before this
+  // returns, so callers may safely destroy their registry/capture dependencies.
+  m_Stopping = true;
   if(m_Server != NULL && m_Server->isListening())
     m_Server->close();
+
+  m_Port = 0;
 
   const QList<QTcpSocket *> sockets = m_Buffers.keys();
   for(QTcpSocket *sock : sockets)
   {
+    const QSharedPointer<QAtomicInt> cancelled = m_InFlightCancellation.value(sock);
+    if(!cancelled.isNull())
+      cancelled->storeRelease(1);
     sock->disconnect(this);
     sock->abort();
     sock->deleteLater();
   }
+  for(auto it = m_InFlightCancellation.begin(); it != m_InFlightCancellation.end(); ++it)
+    it.value()->storeRelease(1);
+
+  WaitForWorkers();
+
   m_Buffers.clear();
+  m_PendingRequests.clear();
+  m_PendingRequestBytes.clear();
+  m_InFlightCancellation.clear();
+  m_TotalPendingRequests = 0;
+  m_TotalPendingRequestBytes = 0;
 
   {
     QMutexLocker lock(&m_Lock);
     m_Sessions.clear();
+    m_AccessToken.clear();
   }
 }
 
 int HttpServer::ActiveSessions() const
 {
   QMutexLocker lock(&m_Lock);
+  const_cast<HttpServer *>(this)->PurgeExpiredSessionsLocked(QDateTime::currentMSecsSinceEpoch());
   return m_Sessions.size();
+}
+
+QString HttpServer::AccessToken() const
+{
+  QMutexLocker lock(&m_Lock);
+  return m_AccessToken;
 }
 
 ServerStatus HttpServer::Status() const
@@ -172,7 +242,16 @@ void HttpServer::OnNewConnection()
     if(sock == NULL)
       break;
 
+    if(m_Stopping || m_Buffers.size() >= kMaxConnections)
+    {
+      RejectAndClose(sock, 429, QStringLiteral("MCP connection capacity is exhausted."));
+      sock->deleteLater();
+      continue;
+    }
+
     m_Buffers[sock] = QByteArray();
+    m_PendingRequests[sock] = QQueue<HttpRequest>();
+    m_PendingRequestBytes[sock] = 0;
 
     connect(sock, &QTcpSocket::readyRead, this, [this, sock]() { OnReadyRead(sock); });
     connect(sock, &QTcpSocket::disconnected, this, [this, sock]() { OnSocketDisconnected(sock); });
@@ -181,8 +260,47 @@ void HttpServer::OnNewConnection()
 
 void HttpServer::OnSocketDisconnected(QTcpSocket *sock)
 {
+  const QSharedPointer<QAtomicInt> cancelled = m_InFlightCancellation.take(sock);
+  if(!cancelled.isNull())
+    cancelled->storeRelease(1);
+
   m_Buffers.remove(sock);
-  sock->deleteLater();
+  DropPendingRequests(sock);
+  if(!m_Stopping)
+    sock->deleteLater();
+}
+
+void HttpServer::DropPendingRequests(QTcpSocket *sock)
+{
+  const qint64 bytes = m_PendingRequestBytes.take(sock);
+  const int count = m_PendingRequests.value(sock).size();
+  m_PendingRequests.remove(sock);
+  m_TotalPendingRequestBytes = qMax<qint64>(0, m_TotalPendingRequestBytes - bytes);
+  m_TotalPendingRequests = qMax(0, m_TotalPendingRequests - count);
+}
+
+void HttpServer::RejectAndClose(QTcpSocket *sock, int status, const QString &message)
+{
+  if(sock == NULL)
+    return;
+
+  HttpResponse response;
+  response.status = status;
+  response.body =
+      JsonToCompact(MakeError(QJsonValue(QJsonValue::Null), ErrorCode::CaptureBusy, message)).toUtf8();
+  SendResponse(sock, response);
+  sock->disconnectFromHost();
+}
+
+void HttpServer::WaitForWorkers()
+{
+  // Pump the UI queue while waiting: tool paths may block on GUI/replay hops.
+  // The bounded pool has no queued MCP work because admission limits in-flight
+  // calls before they are submitted.
+  while(!m_ToolPool.waitForDone(10))
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 10);
+
+  m_InFlightTools = 0;
 }
 
 void HttpServer::NoteError(const QString &message)
@@ -197,7 +315,17 @@ bool HttpServer::ParseRequest(QByteArray &buffer, HttpRequest &req, bool &badReq
 
   const int headerEnd = buffer.indexOf("\r\n\r\n");
   if(headerEnd < 0)
+  {
+    if(buffer.size() > kMaxHeaderBytes)
+      badRequest = true;
     return false;
+  }
+
+  if(headerEnd > kMaxHeaderBytes)
+  {
+    badRequest = true;
+    return false;
+  }
 
   const QByteArray headerBlock = buffer.left(headerEnd);
   const QList<QByteArray> lines = headerBlock.split('\n');
@@ -235,12 +363,27 @@ bool HttpServer::ParseRequest(QByteArray &buffer, HttpRequest &req, bool &badReq
 
   req.sessionId = req.headers.value(QStringLiteral("mcp-session-id"));
 
+  const QString authorization = req.headers.value(QStringLiteral("authorization"));
+  {
+    QMutexLocker lock(&m_Lock);
+    req.authorized = !m_AccessToken.isEmpty() &&
+                     authorization == QStringLiteral("Bearer %1").arg(m_AccessToken);
+  }
+
   const QString accept = req.headers.value(QStringLiteral("accept")).toLower();
   req.wantsSse = accept.contains(QStringLiteral("text/event-stream"));
 
+  bool validLength = true;
   int contentLength = 0;
   if(req.headers.contains(QStringLiteral("content-length")))
-    contentLength = req.headers.value(QStringLiteral("content-length")).toInt();
+  {
+    contentLength = req.headers.value(QStringLiteral("content-length")).toInt(&validLength);
+    if(!validLength || contentLength < 0 || contentLength > kMaxBodyBytes)
+    {
+      badRequest = true;
+      return false;
+    }
+  }
 
   const int bodyStart = headerEnd + 4;
   if(buffer.size() - bodyStart < contentLength)
@@ -310,13 +453,28 @@ void HttpServer::SendResponse(QTcpSocket *sock, const HttpResponse &resp)
 void HttpServer::OnReadyRead(QTcpSocket *sock)
 {
   auto it = m_Buffers.find(sock);
-  if(it == m_Buffers.end())
+  if(m_Stopping || it == m_Buffers.end())
     return;
 
   it.value().append(sock->readAll());
+  // A request may include the maximum legal header plus the maximum legal body.
+  // One extra byte already proves either framing has been exceeded or a peer is
+  // attempting to retain unbounded data in the connection buffer.
+  if(it.value().size() > kMaxHeaderBytes + kMaxBodyBytes)
+  {
+    HttpResponse resp;
+    resp.status = 413;
+    resp.body = JsonToCompact(MakeError(QJsonValue(QJsonValue::Null), ErrorCode::InvalidRequest,
+                                        QStringLiteral("HTTP request exceeds the maximum allowed size.")))
+                    .toUtf8();
+    SendResponse(sock, resp);
+    sock->disconnectFromHost();
+    return;
+  }
 
-  // A connection can carry more than one HTTP request (keep-alive), so keep
-  // draining the buffer until no complete request remains.
+  // A connection can carry more than one HTTP request (keep-alive). Queue them
+  // so an asynchronous tools/call never reorders HTTP responses behind a later
+  // lightweight request.
   for(;;)
   {
     HttpRequest req;
@@ -329,7 +487,7 @@ void HttpServer::OnReadyRead(QTcpSocket *sock)
         HttpResponse resp;
         resp.status = 400;
         resp.body = JsonToCompact(MakeError(QJsonValue(QJsonValue::Null), ErrorCode::InvalidRequest,
-                                           QStringLiteral("Malformed HTTP request.")))
+                                            QStringLiteral("Malformed HTTP request.")))
                         .toUtf8();
         SendResponse(sock, resp);
         sock->disconnectFromHost();
@@ -337,14 +495,215 @@ void HttpServer::OnReadyRead(QTcpSocket *sock)
       break;
     }
 
-    HttpResponse resp;
-    Route(req, resp);
-    SendResponse(sock, resp);
+    const qint64 bodyBytes = req.body.size();
+    const QQueue<HttpRequest> &pending = m_PendingRequests[sock];
+    if(pending.size() >= kMaxPendingRequestsPerSocket ||
+       m_PendingRequestBytes.value(sock) + bodyBytes > kMaxPendingBytesPerSocket ||
+       m_TotalPendingRequests >= kMaxPendingRequests ||
+       m_TotalPendingRequestBytes + bodyBytes > kMaxPendingBytes)
+    {
+      DropPendingRequests(sock);
+      RejectAndClose(sock, 429, QStringLiteral("MCP request queue capacity is exhausted."));
+      sock->deleteLater();
+      return;
+    }
+
+    m_PendingRequests[sock].enqueue(req);
+    m_PendingRequestBytes[sock] += bodyBytes;
+    m_TotalPendingRequestBytes += bodyBytes;
+    m_TotalPendingRequests++;
   }
+
+  if(!m_InFlightCancellation.contains(sock))
+    ProcessNextRequest(sock);
+}
+
+bool HttpServer::IsAsyncToolRequest(const HttpRequest &req) const
+{
+  if(req.method != QStringLiteral("POST") || !req.authorized || m_Registry == NULL)
+    return false;
+
+  const QString contentType = req.headers.value(QStringLiteral("content-type")).toLower();
+  if(req.path != QStringLiteral("/mcp") || !contentType.startsWith(QStringLiteral("application/json")))
+    return false;
+
+  QJsonParseError error;
+  const QJsonDocument doc = QJsonDocument::fromJson(req.body, &error);
+  if(error.error != QJsonParseError::NoError || !doc.isObject())
+    return false;
+
+  const QJsonObject msg = doc.object();
+  return msg.value(QStringLiteral("jsonrpc")).toString() == QStringLiteral("2.0") &&
+         msg.value(QStringLiteral("method")).toString() == QStringLiteral("tools/call") &&
+         !msg.value(QStringLiteral("id")).isUndefined() && !msg.value(QStringLiteral("id")).isNull() &&
+         !msg.value(QStringLiteral("params")).toObject().value(QStringLiteral("name")).toString().isEmpty();
+}
+
+void HttpServer::ProcessNextRequest(QTcpSocket *sock)
+{
+  if(m_Stopping || sock == NULL || !m_Buffers.contains(sock) || m_InFlightCancellation.contains(sock))
+    return;
+
+  QQueue<HttpRequest> &queue = m_PendingRequests[sock];
+  if(queue.isEmpty())
+    return;
+
+  const HttpRequest req = queue.dequeue();
+  const qint64 bodyBytes = req.body.size();
+  m_PendingRequestBytes[sock] = qMax<qint64>(0, m_PendingRequestBytes.value(sock) - bodyBytes);
+  m_TotalPendingRequestBytes = qMax<qint64>(0, m_TotalPendingRequestBytes - bodyBytes);
+  m_TotalPendingRequests = qMax(0, m_TotalPendingRequests - 1);
+  if(!IsAsyncToolRequest(req))
+  {
+    HttpResponse response;
+    Route(req, response);
+    SendResponse(sock, response);
+    ProcessNextRequest(sock);
+    return;
+  }
+
+  // The worker must not touch socket-owned/session state. Validate and refresh
+  // the session on this object's thread, then only hand immutable request data,
+  // context and a shared cancellation flag to the tool implementation.
+  bool validSession = false;
+  {
+    QMutexLocker lock(&m_Lock);
+    validSession = FindSessionLocked(req.sessionId) != NULL;
+  }
+  if(!validSession)
+  {
+    HttpResponse response;
+    response.status = 404;
+    response.body = JsonToCompact(MakeError(
+                        QJsonValue(QJsonValue::Null), ErrorCode::InvalidRequest,
+                        QStringLiteral("Missing or expired MCP session; re-run initialize.")))
+                        .toUtf8();
+    SendResponse(sock, response);
+    ProcessNextRequest(sock);
+    return;
+  }
+
+  if(m_InFlightTools >= kMaxInFlightTools)
+  {
+    HttpResponse response;
+    response.status = 429;
+    response.body = JsonToCompact(MakeError(
+                        QJsonValue(QJsonValue::Null), ErrorCode::CaptureBusy,
+                        QStringLiteral("MCP tool execution capacity is exhausted.")))
+                        .toUtf8();
+    SendResponse(sock, response);
+    ProcessNextRequest(sock);
+    return;
+  }
+
+  const QJsonObject msg = QJsonDocument::fromJson(req.body).object();
+  const QJsonObject params = msg.value(QStringLiteral("params")).toObject();
+  const QString toolName = params.value(QStringLiteral("name")).toString();
+  const QJsonObject arguments = params.value(QStringLiteral("arguments")).toObject();
+  const QJsonValue requestId = msg.value(QStringLiteral("id"));
+  const ToolRegistry *registry = m_Registry;
+  ICaptureContext *context = m_Ctx;
+  const QSharedPointer<QAtomicInt> cancelled(new QAtomicInt(0));
+  m_InFlightCancellation[sock] = cancelled;
+  m_InFlightTools++;
+  const quint64 generation = m_Generation;
+  QPointer<HttpServer> server(this);
+  QPointer<QTcpSocket> socket(sock);
+
+  QRunnable *task = new LambdaRunnable([server, socket, req, registry, context, toolName, arguments,
+                                        requestId, cancelled, generation]() {
+    CallContext call;
+    call.ctx = context;
+    call.cancellationState = cancelled;
+    call.deadlineMs = QDateTime::currentMSecsSinceEpoch() + kToolDeadlineMs;
+    const ToolResult result = registry->Call(toolName, arguments, call);
+
+    QJsonObject item;
+    item[QStringLiteral("type")] = QStringLiteral("text");
+    item[QStringLiteral("text")] = result.ok ? result.text : result.error.message;
+    QJsonObject payload;
+    payload[QStringLiteral("content")] = QJsonArray{item};
+    payload[QStringLiteral("isError")] = !result.ok;
+    payload[QStringLiteral("structuredContent")] = result.ok ? result.structured : result.error.toJson();
+    QJsonObject rpc;
+    rpc[QStringLiteral("jsonrpc")] = QStringLiteral("2.0");
+    rpc[QStringLiteral("id")] = requestId;
+    rpc[QStringLiteral("result")] = payload;
+    const QString json = JsonToCompact(rpc);
+    QByteArray body = json.toUtf8();
+    if(req.wantsSse)
+    {
+      body = "event: message\n";
+      for(const QByteArray &line : json.toUtf8().split('\n'))
+      {
+        body += "data: ";
+        body += line;
+        body += "\n";
+      }
+      body += "\n";
+    }
+
+    // A QPointer prevents a late worker completion from dereferencing a server
+    // that was stopped/destroyed while capture shutdown was in progress. All
+    // socket interaction and queue advancement return to the owning UI thread.
+    if(server)
+    {
+      GUIInvoke::call(server, [server, socket, cancelled, body, req, generation]() {
+        if(server)
+          server->FinishWorker(socket, cancelled, body, req, generation);
+      });
+    }
+  });
+  task->setAutoDelete(true);
+  m_ToolPool.start(task);
+}
+
+void HttpServer::FinishWorker(QTcpSocket *socket,
+                              const QSharedPointer<QAtomicInt> &cancelled, const QByteArray &body,
+                              const HttpRequest &req, quint64 generation)
+{
+  // A completion queued before Stop()/Start() belongs to the preceding server
+  // generation. It must not consume a capacity slot owned by new work.
+  if(generation != m_Generation)
+    return;
+
+  m_InFlightTools = qMax(0, m_InFlightTools - 1);
+
+  if(m_Stopping || socket == NULL || !m_Buffers.contains(socket))
+    return;
+
+  m_InFlightCancellation.remove(socket);
+  if(cancelled->loadAcquire() == 0)
+  {
+    HttpResponse response;
+    response.contentType = req.wantsSse ? QStringLiteral("text/event-stream")
+                                         : QStringLiteral("application/json");
+    response.body = body;
+    SendResponse(socket, response);
+  }
+  ProcessNextRequest(socket);
 }
 
 void HttpServer::Route(const HttpRequest &req, HttpResponse &out)
 {
+  if(req.path != QStringLiteral("/mcp"))
+  {
+    out.status = 404;
+    out.body = JsonToCompact(MakeError(QJsonValue(QJsonValue::Null), ErrorCode::InvalidRequest,
+                                       QStringLiteral("The MCP endpoint is /mcp.")))
+                   .toUtf8();
+    return;
+  }
+
+  if(!req.authorized)
+  {
+    out.status = 401;
+    out.body = JsonToCompact(MakeError(QJsonValue(QJsonValue::Null), ErrorCode::InvalidRequest,
+                                       QStringLiteral("Missing or invalid MCP bearer token.")))
+                   .toUtf8();
+    return;
+  }
+
   // GET is used by the optional server-initiated SSE stream, which P0 does not
   // provide. Answering 405 tells the client to stick to POST requests.
   if(req.method == QStringLiteral("GET"))
@@ -376,6 +735,16 @@ void HttpServer::Route(const HttpRequest &req, HttpResponse &out)
     out.status = 405;
     out.body = JsonToCompact(MakeError(QJsonValue(QJsonValue::Null), ErrorCode::InvalidRequest,
                                        QStringLiteral("Only POST is supported on the MCP endpoint.")))
+                   .toUtf8();
+    return;
+  }
+
+  const QString contentType = req.headers.value(QStringLiteral("content-type")).toLower();
+  if(!contentType.startsWith(QStringLiteral("application/json")))
+  {
+    out.status = 415;
+    out.body = JsonToCompact(MakeError(QJsonValue(QJsonValue::Null), ErrorCode::InvalidRequest,
+                                       QStringLiteral("POST requests must use application/json.")))
                    .toUtf8();
     return;
   }
@@ -500,9 +869,10 @@ QString HttpServer::DispatchJsonRpc(const QString &body, HttpRequest &httpReq, H
     result[QStringLiteral("capabilities")] = caps;
     result[QStringLiteral("serverInfo")] = serverInfo;
     result[QStringLiteral("instructions")] =
-        QStringLiteral("Native qrenderdoc tools for inspecting the currently loaded capture. All "
-                       "tools are read-only and act on the capture state inside the running "
-                       "application.");
+        QStringLiteral("Native qrenderdoc tools for inspecting the currently loaded capture. Most "
+                       "tools are read-only; explicitly marked bookmark tools can modify local "
+                       "bookmark data only when confirm=true is supplied. Mali analysis may launch "
+                       "the locally configured compiler.");
 
     return resultReply(result);
   }
@@ -558,6 +928,11 @@ QString HttpServer::DispatchJsonRpc(const QString &body, HttpRequest &httpReq, H
           t[QStringLiteral("title")] = d.title;
         t[QStringLiteral("description")] = d.description;
         t[QStringLiteral("inputSchema")] = d.inputSchema;
+        QJsonObject annotations;
+        annotations[QStringLiteral("readOnlyHint")] = d.effects == ToolEffects::ReadOnly;
+        annotations[QStringLiteral("destructiveHint")] = false;
+        annotations[QStringLiteral("idempotentHint")] = d.effects == ToolEffects::ReadOnly;
+        t[QStringLiteral("annotations")] = annotations;
         tools.append(t);
       }
     }
@@ -586,6 +961,7 @@ QString HttpServer::DispatchJsonRpc(const QString &body, HttpRequest &httpReq, H
 
     CallContext call;
     call.ctx = m_Ctx;
+    call.deadlineMs = QDateTime::currentMSecsSinceEpoch() + kToolDeadlineMs;
 
     const ToolResult r = m_Registry->Call(name, args, call);
 
@@ -641,8 +1017,21 @@ QString HttpServer::HandleJsonRpc(const QString &body, const QString &sessionId,
   return json;
 }
 
+void HttpServer::PurgeExpiredSessionsLocked(qint64 nowMs)
+{
+  for(auto it = m_Sessions.begin(); it != m_Sessions.end();)
+  {
+    if(nowMs - it.value().lastSeenMs > kSessionIdleTimeoutMs)
+      it = m_Sessions.erase(it);
+    else
+      ++it;
+  }
+}
+
 HttpServer::Session *HttpServer::FindSessionLocked(const QString &id)
 {
+  PurgeExpiredSessionsLocked(QDateTime::currentMSecsSinceEpoch());
+
   if(id.isEmpty())
     return NULL;
 
@@ -656,11 +1045,24 @@ HttpServer::Session *HttpServer::FindSessionLocked(const QString &id)
 
 HttpServer::Session &HttpServer::EnsureSessionLocked(const HttpRequest &req, QString &createdId)
 {
+  PurgeExpiredSessionsLocked(QDateTime::currentMSecsSinceEpoch());
+
   if(!req.sessionId.isEmpty())
   {
     Session *existing = FindSessionLocked(req.sessionId);
     if(existing != NULL)
       return *existing;
+  }
+
+  if(m_Sessions.size() >= kMaxSessions)
+  {
+    auto oldest = m_Sessions.begin();
+    for(auto it = m_Sessions.begin(); it != m_Sessions.end(); ++it)
+    {
+      if(it.value().lastSeenMs < oldest.value().lastSeenMs)
+        oldest = it;
+    }
+    m_Sessions.erase(oldest);
   }
 
   Session s;

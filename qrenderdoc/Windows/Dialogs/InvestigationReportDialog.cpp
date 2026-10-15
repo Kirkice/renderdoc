@@ -176,14 +176,14 @@ bool InvestigationReportDialog::refresh()
   m_Preview->setPlainText(m_Content);
 
   const int bookmarks = report.value(QStringLiteral("bookmarkCount")).toInt();
-  const double hotspots =
-      report.value(QStringLiteral("performance")).toObject().value(QStringLiteral("hottestEvents"))
-          .toArray()
-          .size();
+  const int hotspots = report.value(QStringLiteral("performance"))
+                           .toObject()
+                           .value(QStringLiteral("hottestEvents"))
+                           .toArray()
+                           .size();
 
-  m_Status->setText(tr("Report built: %1 bookmarks, %2 hotspot events.")
-                        .arg(bookmarks)
-                        .arg(int(hotspots)));
+  m_Status->setText(
+      tr("Report built: %1 bookmarks, %2 hotspot events.").arg(bookmarks).arg(hotspots));
   m_Export->setEnabled(!m_Content.isEmpty());
   m_Copy->setEnabled(!m_Content.isEmpty());
   return true;
@@ -191,9 +191,9 @@ bool InvestigationReportDialog::refresh()
 
 void InvestigationReportDialog::exportContent()
 {
-  // Rebuild first so the saved document always reflects the current options: the
-  // limit is only applied when the report is built, not when it is rendered.
-  if(!refresh())
+  // Export exactly the preview the user inspected. Option changes already rebuild
+  // through their slots, so rebuilding here merely repeats expensive replay work.
+  if(m_Content.isEmpty())
     return;
 
   const bool json = selectedFormat() == QStringLiteral("json");

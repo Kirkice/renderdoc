@@ -24,12 +24,17 @@
 
 #pragma once
 
+#include <QAtomicInt>
 #include <QByteArray>
 #include <QList>
 #include <QMap>
 #include <QMutex>
 #include <QObject>
+#include <QQueue>
+#include <QPointer>
+#include <QSharedPointer>
 #include <QString>
+#include <QThreadPool>
 #include "MCPToolRegistry.h"
 
 // QTcpServer is only needed here so that IsRunning() can query the listener
@@ -70,6 +75,8 @@ public:
   bool Start(quint16 port, QString &errorOut);
 
   // Stop listening and drop every active session.
+  // In-flight tool calls are cancelled and joined before this returns, so
+  // callers can safely destroy the registry, adapter and capture context next.
   void Stop();
 
   // "Running" means the listener is actually accepting connections, not merely
@@ -86,8 +93,14 @@ public:
   // The capture context handed to tools via CallContext. Owned elsewhere.
   void SetCaptureContext(ICaptureContext *ctx) { m_Ctx = ctx; }
 
-  // Number of live sessions, for the status UI. Takes the session lock.
+  // Number of live sessions, for the status UI. Takes the session lock and
+  // drops sessions that have been idle for too long.
   int ActiveSessions() const;
+
+  // A per-listener bearer token. It is regenerated every time Start() succeeds
+  // and must be sent as `Authorization: Bearer <token>` by HTTP clients.
+  // Intentionally not persisted: stopping qrenderdoc invalidates prior grants.
+  QString AccessToken() const;
 
   // A ready-to-display snapshot of the server state, used by the MCP status UI
   // and by diagnostics. `registeredTools` reflects the attached registry.
@@ -130,6 +143,7 @@ private:
     QString path;
     QString sessionId;
     bool wantsSse = false;
+    bool authorized = false;
     QByteArray body;
     bool complete = false;
 
@@ -163,9 +177,22 @@ private:
   void OnSocketDisconnected(QTcpSocket *sock);
   void SendResponse(QTcpSocket *sock, const HttpResponse &resp);
 
+  // Requests are serialised per socket to preserve HTTP response ordering. Tool
+  // calls run off the socket event loop, while lightweight protocol operations
+  // are still completed immediately.
+  void ProcessNextRequest(QTcpSocket *sock);
+  bool IsAsyncToolRequest(const HttpRequest &req) const;
+  void DropPendingRequests(QTcpSocket *sock);
+  void RejectAndClose(QTcpSocket *sock, int status, const QString &message);
+  void FinishWorker(QTcpSocket *socket,
+                    const QSharedPointer<QAtomicInt> &cancelled, const QByteArray &body,
+                    const HttpRequest &req, quint64 generation);
+  void WaitForWorkers();
+
   // Session helpers. These expect m_Lock to already be held by the caller.
   Session *FindSessionLocked(const QString &id);
   Session &EnsureSessionLocked(const HttpRequest &req, QString &createdId);
+  void PurgeExpiredSessionsLocked(qint64 nowMs);
 
   void NoteError(const QString &message);
 
@@ -176,6 +203,16 @@ private:
 
   QMap<QString, Session> m_Sessions;
   QMap<QTcpSocket *, QByteArray> m_Buffers;
+  QMap<QTcpSocket *, QQueue<HttpRequest>> m_PendingRequests;
+  QMap<QTcpSocket *, qint64> m_PendingRequestBytes;
+  QMap<QTcpSocket *, QSharedPointer<QAtomicInt>> m_InFlightCancellation;
+  QThreadPool m_ToolPool;
+  int m_InFlightTools = 0;
+  int m_TotalPendingRequests = 0;
+  qint64 m_TotalPendingRequestBytes = 0;
+  bool m_Stopping = false;
+  quint64 m_Generation = 0;
+  QString m_AccessToken;
   QString m_LastError;
 
   // Guards session bookkeeping; requests from multiple sockets can arrive at once.

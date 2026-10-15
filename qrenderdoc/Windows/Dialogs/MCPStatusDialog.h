@@ -40,10 +40,11 @@ class HttpServer;
 // ------------------
 // A small, code-only dialog (no .ui file, so nothing extra has to be added to the
 // build manifests) that surfaces the live MCP server state to the user: whether it
-// is running, the loopback endpoint a client should connect to, how many sessions
-// are attached, how many tools are registered and the last transport/protocol
-// error. It also lets the user start/stop the server at runtime without editing the
-// config file, and copy the endpoint URL for pasting into an MCP client.
+// is running, the loopback endpoint and ephemeral bearer token a client needs to
+// connect, how many sessions are attached, how many tools are registered and the
+// last transport/protocol error. It also lets the user start/stop the server at
+// runtime without editing the config file, and copy a connection configuration for
+// pasting into an MCP client.
 //
 // The dialog only ever reads through MCP::HttpServer's public interface
 // (IsRunning/Status) - it has no knowledge of the transport internals or the tools.
@@ -72,6 +73,7 @@ private:
 
   QLabel *m_State;
   QLabel *m_Endpoint;
+  QLabel *m_AccessToken;
   QLabel *m_Sessions;
   QLabel *m_Tools;
   QLabel *m_LastError;

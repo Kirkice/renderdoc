@@ -54,6 +54,7 @@
 #include <memory>
 #include <stdexcept>
 
+#include <QAtomicInt>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -255,13 +256,25 @@ QByteArray HttpResponseHeader(const QByteArray &response, const QByteArray &name
 }
 
 QByteArray HttpRoundTrip(QTcpSocket &sock, const QByteArray &body, const QByteArray &sessionId,
-                         int timeoutMs)
+                         const QByteArray &token, int timeoutMs,
+                         const QByteArray &path = QByteArray("/mcp"),
+                         const QByteArray &contentType = QByteArray("application/json"))
 {
   QByteArray req;
-  req += "POST /mcp HTTP/1.1\r\n";
+  req += "POST ";
+  req += path;
+  req += " HTTP/1.1\r\n";
   req += "Host: 127.0.0.1\r\n";
-  req += "Content-Type: application/json\r\n";
+  req += "Content-Type: ";
+  req += contentType;
+  req += "\r\n";
   req += "Accept: application/json\r\n";
+  if(!token.isEmpty())
+  {
+    req += "Authorization: Bearer ";
+    req += token;
+    req += "\r\n";
+  }
   if(!sessionId.isEmpty())
   {
     req += "Mcp-Session-Id: ";
@@ -938,6 +951,7 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
     owned.reset(new QCoreApplication(argc, argv));
   }
   REQUIRE(QCoreApplication::instance() != NULL);
+  GUIInvoke::init();
 
   MCP::ToolRegistry registry;
   MCP::QueryAdapter adapter(NULL);
@@ -963,7 +977,10 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
       "{\"protocolVersion\":\"2025-06-18\",\"clientInfo\":{\"name\":\"unit\",\"version\":\"1\"}}}");
 
-  const QByteArray initResp = HttpRoundTrip(sock, initBody, QByteArray(), 5000);
+  const QByteArray token = server.AccessToken().toUtf8();
+  REQUIRE_FALSE(token.isEmpty());
+
+  const QByteArray initResp = HttpRoundTrip(sock, initBody, QByteArray(), token, 5000);
   REQUIRE_FALSE(initResp.isEmpty());
   CHECK(initResp.startsWith("HTTP/1.1 200"));
 
@@ -979,7 +996,7 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
 
   // ---- a second request on the same keep-alive connection -----------------
   const QByteArray listBody = QByteArray("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
-  const QByteArray listResp = HttpRoundTrip(sock, listBody, sessionHeader, 5000);
+  const QByteArray listResp = HttpRoundTrip(sock, listBody, sessionHeader, token, 5000);
   REQUIRE_FALSE(listResp.isEmpty());
   CHECK(listResp.startsWith("HTTP/1.1 200"));
 
@@ -987,10 +1004,153 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
   const QJsonArray tools =
       listJson.value(QStringLiteral("result")).toObject().value(QStringLiteral("tools")).toArray();
   CHECK(tools.size() == registry.Count());
+  REQUIRE_FALSE(tools.isEmpty());
+  CHECK(tools[0].toObject().value(QStringLiteral("annotations")).toObject().contains(
+      QStringLiteral("readOnlyHint")));
 
+  // The loopback listener is still an authorization boundary: neither a bare
+  // endpoint nor a valid token for another path or media type can reach MCP.
+  QTcpSocket rejected;
+  rejected.connectToHost(QHostAddress::LocalHost, port);
+  REQUIRE(WaitFor([&]() { return rejected.state() == QAbstractSocket::ConnectedState; }, 5000));
+
+  const QByteArray noAuth = HttpRoundTrip(rejected, initBody, QByteArray(), QByteArray(), 5000);
+  CHECK(noAuth.startsWith("HTTP/1.1 401"));
+
+  const QByteArray wrongPath =
+      HttpRoundTrip(rejected, initBody, QByteArray(), token, 5000, QByteArray("/other"));
+  CHECK(wrongPath.startsWith("HTTP/1.1 404"));
+
+  const QByteArray wrongContentType = HttpRoundTrip(rejected, initBody, QByteArray(), token, 5000,
+                                                    QByteArray("/mcp"), QByteArray("text/plain"));
+  CHECK(wrongContentType.startsWith("HTTP/1.1 415"));
+
+  rejected.disconnectFromHost();
   sock.disconnectFromHost();
   server.Stop();
   CHECK_FALSE(server.IsRunning());
+}
+
+TEST_CASE("MCP loopback tool calls are asynchronous and cancellable", "[mcp][network]")
+{
+  // The async completion path uses GUIInvoke to return socket ownership to the
+  // application's event thread. The normal qrenderdoc startup initialises this,
+  // while the unit-test harness needs to do so explicitly.
+  std::unique_ptr<QCoreApplication> owned;
+  if(QCoreApplication::instance() == NULL)
+  {
+    static int argc = 1;
+    static char arg0[] = "qrenderdoc";
+    static char *argv[] = {arg0, NULL};
+    owned.reset(new QCoreApplication(argc, argv));
+  }
+  REQUIRE(QCoreApplication::instance() != NULL);
+  GUIInvoke::init();
+
+  MCP::ToolRegistry registry;
+  QAtomicInt started(0);
+  QAtomicInt cancellationObserved(0);
+
+  MCP::ToolDefinition immediate = MakeTool(QStringLiteral("test_immediate"), ObjectSchema());
+  registry.Add(immediate, [](const QJsonObject &, MCP::CallContext &) {
+    QJsonObject result;
+    result[QStringLiteral("value")] = QStringLiteral("completed off socket callback");
+    return MCP::ToolResult::Success(result);
+  });
+
+  MCP::ToolDefinition blocking = MakeTool(QStringLiteral("test_wait_for_cancel"), ObjectSchema());
+  registry.Add(blocking, [&started, &cancellationObserved](const QJsonObject &, MCP::CallContext &call) {
+    started.storeRelease(1);
+    while(!call.IsCancelled() && !call.IsExpired())
+      QThread::msleep(1);
+
+    if(call.IsCancelled())
+    {
+      cancellationObserved.storeRelease(1);
+      return MCP::ToolResult::Failure(
+          MCP::Error(MCP::ErrorCode::Cancelled, QStringLiteral("client disconnected")));
+    }
+
+    return MCP::ToolResult::Failure(
+        MCP::Error(MCP::ErrorCode::Timeout, QStringLiteral("test deadline elapsed")));
+  });
+
+  MCP::HttpServer server;
+  server.SetRegistry(&registry);
+  QString err;
+  REQUIRE(server.Start(0, err));
+
+  const QByteArray token = server.AccessToken().toUtf8();
+  REQUIRE_FALSE(token.isEmpty());
+
+  // A normal tools/call reaches the worker and is delivered back through the
+  // UI/socket thread as a regular MCP response.
+  QTcpSocket completed;
+  completed.connectToHost(QHostAddress::LocalHost, server.Port());
+  REQUIRE(WaitFor([&]() { return completed.state() == QAbstractSocket::ConnectedState; }, 5000));
+  const QByteArray initResp = HttpRoundTrip(completed, InitializeBody().toUtf8(), QByteArray(), token, 5000);
+  const QByteArray session = HttpResponseHeader(initResp, "mcp-session-id");
+  REQUIRE_FALSE(session.isEmpty());
+
+  const QByteArray immediateBody = QByteArray(
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{"
+      "\"name\":\"test_immediate\",\"arguments\":{}}}");
+  const QByteArray immediateResp = HttpRoundTrip(completed, immediateBody, session, token, 5000);
+  REQUIRE(immediateResp.startsWith("HTTP/1.1 200"));
+  const QJsonObject immediateResult =
+      ParseJsonObject(QString::fromUtf8(HttpResponseBody(immediateResp))).value(QStringLiteral("result")).toObject();
+  CHECK_FALSE(immediateResult.value(QStringLiteral("isError")).toBool());
+  CHECK(immediateResult.value(QStringLiteral("structuredContent"))
+            .toObject()
+            .value(QStringLiteral("value"))
+            .toString() == QStringLiteral("completed off socket callback"));
+
+  // Disconnect during an in-flight request. The tool sees the durable atomic
+  // cancellation state, while the server drops its late response safely.
+  QTcpSocket cancelled;
+  cancelled.connectToHost(QHostAddress::LocalHost, server.Port());
+  REQUIRE(WaitFor([&]() { return cancelled.state() == QAbstractSocket::ConnectedState; }, 5000));
+  const QByteArray cancelInit = HttpRoundTrip(cancelled, InitializeBody().toUtf8(), QByteArray(), token, 5000);
+  const QByteArray cancelSession = HttpResponseHeader(cancelInit, "mcp-session-id");
+  REQUIRE_FALSE(cancelSession.isEmpty());
+
+  const QByteArray blockingBody = QByteArray(
+      "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{"
+      "\"name\":\"test_wait_for_cancel\",\"arguments\":{}}}");
+  QByteArray request = "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+                       "Accept: application/json\r\nAuthorization: Bearer ";
+  request += token;
+  request += "\r\nMcp-Session-Id: ";
+  request += cancelSession;
+  request += "\r\nContent-Length: ";
+  request += QByteArray::number(blockingBody.size());
+  request += "\r\n\r\n";
+  request += blockingBody;
+  cancelled.write(request);
+  cancelled.flush();
+
+  REQUIRE(WaitFor([&]() { return started.loadAcquire() != 0; }, 5000));
+  cancelled.abort();
+  REQUIRE(WaitFor([&]() { return cancellationObserved.loadAcquire() != 0; }, 5000));
+
+  // Server shutdown uses the same durable cancellation state, then joins the
+  // bounded worker pool before returning. This models MainWindow teardown,
+  // where the registry and capture context are destroyed immediately after Stop.
+  started.storeRelease(0);
+  cancellationObserved.storeRelease(0);
+  QTcpSocket stopping;
+  stopping.connectToHost(QHostAddress::LocalHost, server.Port());
+  REQUIRE(WaitFor([&]() { return stopping.state() == QAbstractSocket::ConnectedState; }, 5000));
+  const QByteArray stopInit = HttpRoundTrip(stopping, InitializeBody().toUtf8(), QByteArray(), token, 5000);
+  const QByteArray stopSession = HttpResponseHeader(stopInit, "mcp-session-id");
+  REQUIRE_FALSE(stopSession.isEmpty());
+  HttpRoundTrip(stopping, blockingBody, stopSession, token, 1);
+  REQUIRE(WaitFor([&]() { return started.loadAcquire() != 0; }, 5000));
+  server.Stop();
+  CHECK(cancellationObserved.loadAcquire() != 0);
+  CHECK_FALSE(server.IsRunning());
+
+  completed.disconnectFromHost();
 }
 
 TEST_CASE("MCP analysis domain model", "[mcp][analysis]")
