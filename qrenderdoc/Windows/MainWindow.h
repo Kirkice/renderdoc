@@ -49,6 +49,7 @@ class QShortcut;
 class QToolButton;
 class CaptureDialog;
 class LiveCapture;
+class MCPStatusDialog;
 class QNetworkAccessManager;
 
 namespace MCP
@@ -292,6 +293,7 @@ private:
   MCP::QueryAdapter *m_MCPAdapter = NULL;
   MCP::ToolRegistry *m_MCPRegistry = NULL;
   MCP::HttpServer *m_MCPServer = NULL;
+  MCPStatusDialog *m_MCPView = NULL;
 
   bool m_messageAlternate = false;
 

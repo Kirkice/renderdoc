@@ -3050,8 +3050,23 @@ void MainWindow::on_action_Settings_triggered()
 
 void MainWindow::on_action_MCP_Server_triggered()
 {
-  MCPStatusDialog mcp(m_Ctx, m_MCPServer, this);
-  RDDialog::show(&mcp);
+  if(m_MCPView == NULL)
+  {
+    m_MCPView = new MCPStatusDialog(m_Ctx, m_MCPServer, this);
+    m_MCPView->setObjectName(lit("MCPControlCenter"));
+    m_MCPView->setWindowTitle(tr("MCP Control Center"));
+  }
+
+  if(ui->toolWindowManager->toolWindows().contains(m_MCPView))
+  {
+    ToolWindowManager::raiseToolWindow(m_MCPView);
+    return;
+  }
+
+  // AddTo makes the control centre a first-class View tab alongside Texture Viewer,
+  // Pipeline State, and Mesh View. The user can still drag it to another dock area.
+  ui->toolWindowManager->addToolWindow(m_MCPView, mainToolArea(), ToolWindowManager::HideOnClose);
+  ToolWindowManager::raiseToolWindow(m_MCPView);
 }
 
 void MainWindow::on_action_Investigation_Report_triggered()

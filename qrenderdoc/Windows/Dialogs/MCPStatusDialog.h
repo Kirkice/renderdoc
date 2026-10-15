@@ -24,10 +24,12 @@
 
 #pragma once
 
-#include <QDialog>
+#include <QWidget>
 
 class QLabel;
+class QPlainTextEdit;
 class QPushButton;
+class QTimer;
 
 struct ICaptureContext;
 
@@ -36,19 +38,12 @@ namespace MCP
 class HttpServer;
 }
 
-// P0-8 MCP status UI
-// ------------------
-// A small, code-only dialog (no .ui file, so nothing extra has to be added to the
-// build manifests) that surfaces the live MCP server state to the user: whether it
-// is running, the loopback endpoint and ephemeral bearer token a client needs to
-// connect, how many sessions are attached, how many tools are registered and the
-// last transport/protocol error. It also lets the user start/stop the server at
-// runtime without editing the config file, and copy a connection configuration for
-// pasting into an MCP client.
+// A dedicated control centre for operating and connecting local AI clients to the
+// loopback MCP server. It deliberately reads only HttpServer's public status API.
 //
 // The dialog only ever reads through MCP::HttpServer's public interface
 // (IsRunning/Status) - it has no knowledge of the transport internals or the tools.
-class MCPStatusDialog : public QDialog
+class MCPStatusDialog : public QWidget
 {
   Q_OBJECT
 
@@ -77,8 +72,13 @@ private:
   QLabel *m_Sessions;
   QLabel *m_Tools;
   QLabel *m_LastError;
+  QLabel *m_StatusBadge;
+  QLabel *m_Port;
+  QLabel *m_AccessHint;
+  QPlainTextEdit *m_ConfigPreview;
 
   QPushButton *m_Toggle;
   QPushButton *m_Refresh;
   QPushButton *m_Copy;
+  QTimer *m_AutoRefresh;
 };
