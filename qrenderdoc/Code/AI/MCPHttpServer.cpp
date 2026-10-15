@@ -24,8 +24,6 @@
 
 #include "MCPHttpServer.h"
 
-#include "QRDUtils.h"
-
 #include <QDateTime>
 #include <QCoreApplication>
 #include <QEventLoop>

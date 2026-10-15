@@ -1230,7 +1230,15 @@ ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
     return ToolResult::Failure(Error(ErrorCode::Cancelled, "tool call cancelled"));
 
   if(call.IsExpired())
-    return ToolResult::Failure(Error(ErrorCode::DeadlineExceeded, "tool call deadline exceeded"));
+    return ToolResult::Failure(Error(ErrorCode::Timeout, "tool call deadline exceeded"));
+
+  // MCP inspection tools may select one or many arbitrary events while gathering
+  // pipeline facts. ReplayController::SetFrameEvent() also updates every live
+  // replay output, including TextureViewer's output. Preserve the event selected
+  // by qrenderdoc before dispatch and restore it before releasing the replay
+  // thread, otherwise a read-only MCP request can leave TextureViewer presenting
+  // resource contents from the final inspected event.
+  const uint32_t restoreEvent = Snapshot().currentEvent;
 
   IReplayManager &replay = m_Ctx->Replay();
 
@@ -1271,7 +1279,7 @@ ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
 
       if(call.IsExpired())
       {
-        result = ToolResult::Failure(Error(ErrorCode::DeadlineExceeded, "tool call deadline exceeded"));
+        result = ToolResult::Failure(Error(ErrorCode::Timeout, "tool call deadline exceeded"));
         return;
       }
 
@@ -1289,6 +1297,24 @@ ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
         result = ToolResult::Failure(
             Error(ErrorCode::InternalError, "replay query threw an unknown exception"));
       }
+
+      // Do this after the query even when it reports a tool-level error. Queries
+      // such as pass graph construction can select hundreds of events, and the
+      // currently displayed TextureViewer resource must remain evaluated at the
+      // qrenderdoc UI's selected event rather than at the last inspected event.
+      if(restoreEvent != 0)
+      {
+        try
+        {
+          r->SetFrameEvent(restoreEvent, false);
+        }
+        catch(...)
+        {
+          // The primary query result is still useful if a capture closes or
+          // replay becomes unavailable while this read-only request completes.
+          // Do not replace it with a restoration failure.
+        }
+      }
     });
   }
   catch(const std::exception &e)
@@ -1298,7 +1324,7 @@ ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
   }
 
   if(call.IsExpired())
-    return ToolResult::Failure(Error(ErrorCode::DeadlineExceeded, "tool call deadline exceeded"));
+    return ToolResult::Failure(Error(ErrorCode::Timeout, "tool call deadline exceeded"));
 
   if(!invoked)
   {
