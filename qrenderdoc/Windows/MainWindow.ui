@@ -65,6 +65,7 @@
     <addaction name="action_Manage_Remote_Servers"/>
     <addaction name="separator"/>
     <addaction name="action_MCP_Server"/>
+    <addaction name="action_Investigation_Report"/>
     <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menu_File">
@@ -382,7 +383,12 @@
   </action>
   <action name="action_MCP_Server">
    <property name="text">
-    <string>&MCP Server</string>
+    <string>MCP Server</string>
+   </property>
+  </action>
+  <action name="action_Investigation_Report">
+   <property name="text">
+    <string>Investigation Report</string>
    </property>
   </action>
   <action name="action_View_Documentation">

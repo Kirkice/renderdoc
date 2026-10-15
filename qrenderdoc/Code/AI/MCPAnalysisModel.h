@@ -53,7 +53,10 @@
 // This model is a peer of MCPTypes.h - both are consumed by the tool layer, and
 // neither talks to the UI, the VS Code extension, or any external process.
 
+#include <QHash>
+#include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -81,12 +84,16 @@ struct CaptureSnapshot;
 // from the capture or replay (a fact). "Inferred" means it was derived by a
 // heuristic (a conclusion the tool reached). "ToVerify" marks something the tool
 // could not resolve and that the user or a follow-up query should confirm -
-// typically because the relevant replay call was unavailable.
+// typically because the relevant replay call was unavailable. "Low" marks a
+// heuristic ranking whose whole result is subject to a stated limitation (used by
+// the resource-memory heuristics in P1-4): the individual rows are still facts,
+// but the ordering/selection is a best-effort signal rather than a verdict.
 enum class Confidence
 {
   Confirmed,
   Inferred,
   ToVerify,
+  Low,
 };
 
 // Stable string name ("confirmed" / "inferred" / "toVerify"), used in JSON so
@@ -630,5 +637,370 @@ QJsonObject PipelineDiffResultToJson(const PipelineDiffResult &result);
 // and so the test can exercise it without a replay controller. Returns the
 // stages in canonical order; the returned list may be empty.
 QStringList SnapshotStagesFromPipelineJson(const QJsonObject &stateA, const QJsonObject &stateB);
+
+//
+// ---- P1-6 structured performance report ----------------------------------
+//
+// The ported plugin GeneratePerformanceReportTool ranks the frame's GPU-timed
+// leaf events, aggregates those timings per pass and, for each hotspot, attaches
+// the pipeline/shader/resource/mesh evidence that explains it. We keep that
+// shape but anchor every entry to a typed EvidenceRef so a conclusion can always
+// be traced back to an EID, a resource, a shader stage or a timing sample:
+//
+//   * hottestPasses  - per-pass summed GPU time over the frame's leaf events;
+//   * hottestEvents  - the top timed leaf events, each carrying an evidence list
+//                      (timing + shader + resource, and, when requested, a
+//                      pipeline snapshot / mesh-data evidence pointer);
+//   * conclusions    - split by provenance: `confirmed` are facts read from
+//                      replay, `inferred` are heuristic deductions and
+//                      `toVerify` is what a follow-up query or the user still has
+//                      to confirm. When GPU timings are unavailable the ranking
+//                      cannot be a fact, so nothing lands in `confirmed`.
+//
+// Every field here is pure data, so the report can be serialised and tested
+// without a capture, a replay controller or Qt widgets.
+
+// A pass and the total GPU time of the frame's leaf events under it. `confidence`
+// is Confirmed when the total comes from real EventGPUDuration samples and
+// Inferred when it is partly derived (some children had no timing).
+struct PerformanceHotPass
+{
+  QString passId;         // stable pass identifier (BuildPassId)
+  QString name;           // marker/action name, "Frame" for the implicit root
+  uint32_t firstEventId = 0;
+  uint32_t lastEventId = 0;
+  uint32_t eventCount = 0;    // leaf events aggregated into this pass
+  double durationUs = 0.0;
+  Confidence confidence = Confidence::Confirmed;
+};
+
+// One hotspot event plus the evidence that supports its ranking. The evidence
+// vector always contains the timing sample (kind == "timing") and, when the
+// pipeline could be read, the bound shaders (kind == "shader") and the touched
+// resources (kind == "resource"). `pipelineEvidence` / `meshEvidence` are
+// additional pointers a client can follow up on (they are not expanded here so
+// the report stays compact).
+struct PerformanceHotEvent
+{
+  uint32_t eventId = 0;
+  QString name;
+  QString passId;
+  QString passName;
+  double durationUs = 0.0;
+  double share = 0.0;        // fraction of totalDurationUs, 0..1
+  bool pipelineAvailable = false;
+  bool meshAvailable = false;
+  QVector<EvidenceRef> evidence;
+  Confidence confidence = Confidence::Confirmed;
+};
+
+// The provenance-split conclusion lists. Each string is human readable; the
+// machine-checkable anchor for a conclusion is the `evidence` on the
+// PerformanceHotEvent it refers to.
+struct PerformanceConclusions
+{
+  QStringList confirmed;
+  QStringList inferred;
+  QStringList toVerify;
+};
+
+struct PerformanceReport
+{
+  bool available = true;
+  bool timingAvailable = false;      // EventGPUDuration was measurable
+  QString capturePath;
+  QString api;                       // human readable graphics API, from snapshot
+  uint32_t frameNumber = 0;
+  uint32_t totalTimedEvents = 0;     // leaf events with a positive measurement
+  double totalDurationUs = 0.0;
+  uint32_t hotEventLimit = 0;        // cap applied to hottestEvents
+  QVector<PerformanceHotPass> hottestPasses;
+  QVector<PerformanceHotEvent> hottestEvents;
+  PerformanceConclusions conclusions;
+  QVector<EvidenceRef> evidence;     // report-level anchors (capture, timings)
+  Confidence confidence = Confidence::Confirmed;
+  QString limitation;
+};
+
+QJsonObject PerformanceHotPassToJson(const PerformanceHotPass &pass);
+QJsonObject PerformanceHotEventToJson(const PerformanceHotEvent &hotEvent);
+QJsonObject PerformanceConclusionsToJson(const PerformanceConclusions &conclusions);
+QJsonObject PerformanceReportToJson(const PerformanceReport &report);
+
+// Render the report as a Markdown document. `evidence` is the report-level
+// anchor block the tool passes through (same strings the plugin's template used);
+// this function only formats, it never invents facts.
+QString PerformanceReportToMarkdown(const PerformanceReport &report);
+
+//
+// ---- Event Browser advanced filtering and AI context (P1-7) ---------------
+//
+// The native Event Browser owns the event tree and its expression-based filter
+// box; nothing here replaces either. This model augments that view with the
+// plugin's *combined* filter set (marker scope, debug/empty-operation exclusion,
+// event-id bounds, draw-only) applied over the same action tree, plus a renderer
+// that turns the surviving rows into an AI-ready context block. The filter walk
+// is pure data, so it can be tested without a capture or a replay controller.
+//
+// The native filter box evaluates `$action()`/`$marker` style expressions in
+// EventBrowser's own proxy model for the on-screen tree. This model is the
+// programmatic counterpart a tool can call to get a flattened, capped,
+// machine-readable subset - the two coexist and neither replaces the other.
+
+// One row in the filtered, flattened event list handed back to a client. All
+// fields except the duration are facts read from the action tree; the duration is
+// present only when the capture exposes EventGPUDuration.
+struct EventBrowserContextRow
+{
+  uint32_t eventId = 0;
+  QString name;
+  QString flags;        // human readable flag names, e.g. "Drawcall|Indexed"
+  uint32_t depth = 0;   // tree depth, 0 = root
+  uint32_t numIndices = 0;
+  uint32_t numInstances = 0;
+  double durationUs = 0.0;
+  bool hasDuration = false;
+  Confidence confidence = Confidence::Confirmed;
+};
+
+// The combined filter set, echoed back in the result so a client can reproduce
+// the query. An empty markerFilter and zero event-id bounds mean "no constraint".
+struct EventBrowserFilterOptions
+{
+  QString markerFilter;                  // case-insensitive substring on the action name
+  bool excludeMarkers = false;           // drop marker groups
+  bool onlyDrawCalls = false;            // keep only real draw/dispatch/clear effects
+  bool excludeDebugMarkers = false;      // drop debug/annotation marker groups
+  bool excludeEmptyOperations = false;   // drop zero-index/zero-instance effects
+  bool sortByDuration = false;           // order rows by GPU duration, hottest first
+  uint32_t eventIdMin = 0;               // 0 == no lower bound
+  uint32_t eventIdMax = 0;               // 0 == no upper bound
+};
+
+// Counters gathered during the filter walk.
+struct EventBrowserFilterStats
+{
+  uint32_t totalEvents = 0;     // nodes visited (the whole frame, pre-filter)
+  uint32_t matchedEvents = 0;   // rows produced (post-filter, pre-cap)
+};
+
+struct EventBrowserContext
+{
+  bool available = true;
+  QString capturePath;
+  QString api;
+  uint32_t frameNumber = 0;
+  EventBrowserFilterOptions filters;
+  uint32_t totalEvents = 0;
+  uint32_t matchedEvents = 0;
+  bool truncated = false;       // rows were dropped by the caller's cap
+  QVector<EventBrowserContextRow> rows;
+  QString aiContext;            // prose block a model can read directly
+  Confidence confidence = Confidence::Confirmed;
+  QString limitation;
+};
+
+// Human readable names for the set bits in `flags`, e.g. "Drawcall|Indexed".
+QString ActionFlagNames(ActionFlags flags);
+
+// True if `flags` describe a real draw/dispatch/mesh-dispatch/clear effect.
+bool IsRealDrawCall(ActionFlags flags);
+
+// True if `name` looks like a debug/annotation marker (contains "debug" or
+// "marker", or starts with "rdoc"). Heuristic, so hits should be treated as
+// Inferred rather than a fact.
+bool IsDebugMarkerName(const QString &name);
+
+// True for an "empty" operation: a leaf real effect with no indices and no
+// instances, i.e. a draw/dispatch that writes nothing.
+bool IsEmptyOperation(const ActionDescription &action);
+
+// Apply the combined filter set to the action tree, appending the surviving
+// actions to `out` as a flat pre-order list and folding counters into `stats`.
+// Semantics mirror the plugin's `filterDrawCallsAdvanced`:
+//   * a markerFilter name match turns on "in scope" for the entire subtree;
+//   * a node that fails but has surviving descendants is elided and its
+//     descendants promoted, so a container never hides matching content;
+//   * when markerFilter is set, a node is kept only if it is in scope or one of
+//     its descendants survived.
+// `timings` supplies EventGPUDuration per event id (may be empty).
+void FilterEventBrowserActions(const rdcarray<ActionDescription> &roots, const SDFile &sdfile,
+                               const EventBrowserFilterOptions &options,
+                               const QHash<quint32, double> &timings,
+                               QVector<EventBrowserContextRow> &out,
+                               EventBrowserFilterStats &stats);
+
+QJsonObject EventBrowserContextRowToJson(const EventBrowserContextRow &row);
+QJsonObject EventBrowserFilterOptionsToJson(const EventBrowserFilterOptions &options);
+QJsonObject EventBrowserContextToJson(const EventBrowserContext &context);
+
+// Render the context as a compact prose block for an AI client: the capture,
+// the applied filters, the frame totals and one line per surviving row.
+QString EventBrowserContextToText(const EventBrowserContext &context);
+
+// ---------------------------------------------------------------------------
+// P1-8 investigation bookmark model
+// ---------------------------------------------------------------------------
+// The native capture format stores one bookmark per event: an event id plus a
+// free-form note. The VS Code extension adds a richer record - an id, tags,
+// an open issue, a conclusion, a screenshot and an AI analysis reference - that
+// is not persisted into the capture at all.
+//
+// Rather than widen the persisted format (which would break every other reader
+// of the `renderdoc/ui/bookmarks` section, including the Python API and the
+// native Event Browser strip), the extended fields are kept in a dedicated,
+// versioned, backward-compatible section. The record below is the canonical
+// in-memory shape; the serialisers keep the two halves apart:
+//
+//   * `text` is the portable subset - it round-trips through the native
+//     bookmark section, so a bookmark placed by the AI tool still shows up in
+//     the Event Browser's bookmark strip and a rename there is still visible
+//     to the AI;
+//   * everything else lives only in the sidecar section, so a capture written
+//     by a stock RenderDoc build loses no fields it never knew about, and an
+//     extended capture opened by a stock build degrades to the plain bookmark.
+//
+// `confidence` marks the boundary between a human/AI-recorded judgement
+// (Confirmed for the fields the user typed, Inferred for machine-derived ones)
+// and a fact read out of the capture, exactly like the rest of the model.
+
+// One investigation bookmark. `id` is stable and locally unique within a
+// capture; an empty id means "not yet assigned" and the writer derives one from
+// the event id so old records without ids still load.
+struct BookmarkTaggedItem
+{
+  QString id;
+  QString eventId;      // informational: which event the note was recorded against
+  QString title;
+  QString note;         // the portable bookmark text
+  QString conclusion;
+  QString analysis;              // free-form AI analysis prose
+  QString screenshotPath;
+  Confidence confidence = Confidence::Confirmed;
+};
+
+// Aggregate written into the sidecar section.
+struct BookmarkFile
+{
+  uint32_t version = 1;
+  QString capturePath;
+  QVector<BookmarkTaggedItem> items;
+};
+
+// A bookmark paired with the file path its sidecar lives in, so a read does not
+// have to re-derive the path from the capture.
+struct BookmarkSidecar
+{
+  bool available = false;       // the capture is open locally and its sidecar is readable
+  bool sidecarPresent = false;  // the sidecar section exists (false == no extended fields yet)
+  uint32_t version = 0;
+  QString capturePath;
+  QString sidecarPath;
+  QVector<BookmarkTaggedItem> items;
+  QString limitation;
+};
+
+// Derive the sidecar path for a capture: "<capture>.rdc.bookmarks.json" next to
+// the capture. An empty capture path yields an empty sidecar path.
+QString BookmarkSidecarPath(const QString &capturePath);
+
+// Fold a sidecar document into the bookmark list read from the capture. Items
+// are matched on event id and the sidecar's non-empty fields win; bookmarks that
+// only exist in the capture keep their `text` and gain no extended fields. The
+// result preserves the capture's ordering and appends sidecar-only records.
+QVector<BookmarkTaggedItem> MergeBookmarkSidecar(const rdcarray<EventBookmark> &bookmarks,
+                                                 const BookmarkFile &sidecar);
+
+// Parse/serialise the sidecar document. Parsing is defensive: an unknown
+// version, a missing list or a malformed record yields a usable (possibly empty)
+// document rather than a failure, so a partially-written file never blocks a
+// capture from loading.
+BookmarkFile ParseBookmarkFile(const QByteArray &json);
+QByteArray SerializeBookmarkFile(const BookmarkFile &file);
+
+// Merge an existing sidecar with an incoming set of records. A record whose id
+// matches an existing one replaces it field-by-field (only non-empty fields
+// overwrite); a record with an unknown id is appended. Used by the write tool so
+// one update never clobbers the other bookmarks in the file. Records with an
+// empty id are rejected by the caller before reaching here.
+BookmarkFile UpsertBookmarkRecords(const BookmarkFile &existing,
+                                   const QVector<BookmarkTaggedItem> &incoming);
+
+// True if the record carries at least one extended field, i.e. it is more than
+// a plain capture bookmark and therefore needs the sidecar to survive.
+bool BookmarkHasExtendedFields(const BookmarkTaggedItem &item);
+
+QJsonObject BookmarkTaggedItemToJson(const BookmarkTaggedItem &item);
+QJsonObject BookmarkFileToJson(const BookmarkFile &file);
+QJsonObject BookmarkSidecarToJson(const BookmarkSidecar &sidecar);
+
+// Render the sidecar as a compact prose block for an AI client.
+QString BookmarkSidecarToText(const BookmarkSidecar &sidecar);
+
+//
+// ---- Investigation report (P1-9) ------------------------------------------
+//
+// The plugin's `ExportInvestigationReportTool` is the one place where the whole
+// investigation is packaged into a single artefact: capture metadata, the
+// user/AI bookmarks, the performance hotspots and the resource-memory footprint,
+// rendered either as JSON or as a Markdown document. The native port keeps the
+// same shape but composes it from the *already-built* P1-4/P1-6/P1-8 models
+// instead of re-deriving JSON at the tool layer, so there is exactly one
+// definition of every field.
+//
+// The struct is deliberately clock-free and capture-free: `generatedAt` is
+// supplied by the caller and the three sub-reports are filled by the adapter. It
+// therefore serialises and renders without a capture, a replay controller, a
+// filesystem or Qt widgets, which is what makes it testable.
+
+// A bookmark as it appears in the report. This is the P1-8 record verbatim, so a
+// report written today and a bookmark edited later cannot disagree about field
+// names. The report adds no bookmark fields of its own.
+// (BookmarkTaggedItem is defined above in the P1-8 section.)
+
+struct InvestigationReport
+{
+  bool available = true;          // a capture is loaded and the report could be built
+  QString generatedAt;            // ISO 8601 UTC, supplied by the caller
+  QString capturePath;
+  QString api;                    // human readable graphics API, from the snapshot
+  uint32_t frameNumber = 0;
+  uint32_t currentEvent = 0;      // selected EID at build time, 0 when none
+
+  // P1-8 bookmarks. `bookmarksAvailable` is false only when the capture is not
+  // open locally; `bookmarkLimitation` then explains why.
+  QVector<BookmarkTaggedItem> bookmarks;
+  bool bookmarksAvailable = false;
+  QString bookmarkLimitation;
+
+  // P1-6 performance half. `performance.timingAvailable` drives whether the
+  // hotspot section is a fact or a hypothesis.
+  PerformanceReport performance;
+
+  // P1-4 resource half.
+  ResourceMemoryAudit resources;
+
+  // Report-level anchors (capture, timings) plus the per-hotspot evidence carried
+  // on `performance.hottestEvents[].evidence`.
+  QVector<EvidenceRef> evidence;
+
+  // Everything the report cannot claim to know, in one place.
+  QStringList limitations;
+  Confidence confidence = Confidence::Confirmed;
+};
+
+// The effective limitation list: the caller-supplied `limitations` merged with
+// the standard ones derived from the sub-reports (bookmark sidecar unavailable,
+// GPU timings unavailable, resource sizes are estimates). Duplicates are dropped
+// so a reason is never repeated.
+QStringList InvestigationReportLimitations(const InvestigationReport &report);
+
+QJsonObject InvestigationReportToJson(const InvestigationReport &report);
+
+// Render the report as a Markdown document. Section titles match the plugin
+// ("## Bookmarks", "## Performance hotspots", "## Limitations") so a client
+// written against the extension keeps working; the extra sections only add
+// detail, they never remove one of those three.
+QString InvestigationReportToMarkdown(const InvestigationReport &report);
 
 }    // namespace MCP

@@ -37,6 +37,7 @@
 #include <QShortcut>
 #include <QToolButton>
 #include <QToolTip>
+#include "Code/AI/MCPExternalTools.h"
 #include "Code/AI/MCPHttpServer.h"
 #include "Code/AI/MCPQueryAdapter.h"
 #include "Code/AI/MCPToolRegistry.h"
@@ -52,6 +53,7 @@
 #include "Windows/Dialogs/CaptureDialog.h"
 #include "Windows/Dialogs/CrashDialog.h"
 #include "Windows/Dialogs/ExtensionManager.h"
+#include "Windows/Dialogs/InvestigationReportDialog.h"
 #include "Windows/Dialogs/LiveCapture.h"
 #include "Windows/Dialogs/MCPStatusDialog.h"
 #include "Windows/Dialogs/RemoteManager.h"
@@ -148,6 +150,7 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   m_MCPAdapter = new MCP::QueryAdapter(&m_Ctx);
   m_MCPRegistry = new MCP::ToolRegistry();
   MCP::RegisterCoreTools(*m_MCPRegistry, *m_MCPAdapter);
+  MCP::RegisterExternalToolTools(*m_MCPRegistry, *m_MCPAdapter);
 
   m_MCPServer = new MCP::HttpServer(this);
   m_MCPServer->SetRegistry(m_MCPRegistry);
@@ -156,11 +159,12 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   if(ctx.Config().MCP_Enabled)
   {
     const int port = ctx.Config().MCP_Port;
-    QString error;
+    QString error = QString();
     if(!m_MCPServer->Start(quint16(port & 0xffff), error))
     {
-      const QByteArray msg =
-          QString("Failed to start MCP server on 127.0.0.1:%1: %2").arg(port).arg(error).toUtf8();
+      const QString message =
+          QStringLiteral("Failed to start MCP server on 127.0.0.1:%1: %2").arg(port).arg(error);
+      const QByteArray msg = message.toUtf8();
       RENDERDOC_LogMessage(LogType::Error, "qrenderdoc", __FILE__, __LINE__, msg.constData());
     }
   }
@@ -3048,6 +3052,12 @@ void MainWindow::on_action_MCP_Server_triggered()
 {
   MCPStatusDialog mcp(m_Ctx, m_MCPServer, this);
   RDDialog::show(&mcp);
+}
+
+void MainWindow::on_action_Investigation_Report_triggered()
+{
+  InvestigationReportDialog report(m_Ctx, m_MCPAdapter, this);
+  RDDialog::show(&report);
 }
 
 void MainWindow::on_action_View_Documentation_triggered()

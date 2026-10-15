@@ -812,7 +812,37 @@ DECLARE_REFLECTION_STRUCT(BugReport);
       "them to exfiltrate capture contents.\n"                                                     \
       ""                                                                                           \
       ":type: bool");                                                                              \
-  CONFIG_SETTING_VAL(public, bool, bool, MCP_AllowSensitiveData, false)
+  CONFIG_SETTING_VAL(public, bool, bool, MCP_AllowSensitiveData, false)                            \
+                                                                                                   \
+  DOCUMENT(                                                                                        \
+      "Absolute path to the Mali Offline Compiler (``malioc``/``malioc.exe``) that the MCP "       \
+      "external-tool integration should run. Either the executable itself or the directory that "  \
+      "contains it may be given; an empty value (the default) disables Mali analysis, so no "      \
+      "external process is ever started until the user opts in by setting this.\n"                 \
+      "\n"                                                                                         \
+      "The compiler is only ever launched for a shader the capture already contains, and its "     \
+      "output is returned to the caller in-band; nothing is uploaded anywhere.\n"                   \
+      ""                                                                                           \
+      ":type: str");                                                                               \
+  CONFIG_SETTING_VAL(public, QString, rdcstr, MCP_MaliCompilerPath, "")                            \
+                                                                                                   \
+  DOCUMENT(                                                                                        \
+      "The Mali GPU profile passed to the Mali Offline Compiler as ``-c <profile>``, for example " \
+      "``Mali-G78``. An empty value (the default) uses the compiler's own default profile, which " \
+      "is what the VS Code extension's \"Default profile\" option did. An unrecognised name is "   \
+      "also treated as the default rather than being passed through.\n"                            \
+      ""                                                                                           \
+      ":type: str");                                                                               \
+  CONFIG_SETTING_VAL(public, QString, rdcstr, MCP_MaliDevice, "")                                  \
+                                                                                                   \
+  DOCUMENT(                                                                                        \
+      "Extra command-line argument appended as one literal argv entry when the Mali Offline "       \
+      "Compiler is run, for example ``--metrics``. It is empty by default and the integration " \
+      "never adds flags the user did not ask for. Use the MCP tool's ``extraArgs`` array when "    \
+      "multiple independently quoted arguments are needed.\n"                                      \
+      ""                                                                                           \
+      ":type: str");                                                                               \
+  CONFIG_SETTING_VAL(public, QString, rdcstr, MCP_MaliExtraArgs, "")
 
 DOCUMENT(R"(The formatting mode used when displaying fields marked as Offsets or Sizes.
 

@@ -264,7 +264,13 @@ SOURCES += Code/qrenderdoc.cpp \
     Code/AI/MCPTools.cpp \
     Code/AI/MCPHttpServer.cpp \
     Code/AI/MCPTests.cpp \
+    Code/AI/MCPCaptureMatch.cpp \
+    Code/AI/MCPRegressionDiff.cpp \
     Code/AI/MCPAnalysisModel.cpp \
+    Code/AI/MCPDiagnostics.cpp \
+    Code/AI/MCPExternalTools.cpp \
+    Code/AI/MCPSourceMapping.cpp \
+    Windows/Dialogs/InvestigationReportDialog.cpp \
     Windows/Dialogs/MCPStatusDialog.cpp
 HEADERS += Code/CaptureContext.h \
     Code/qprocessinfo.h \
@@ -361,8 +367,14 @@ HEADERS += Code/CaptureContext.h \
     Code/AI/MCPToolRegistry.h \
     Code/AI/MCPQueryAdapter.h \
     Code/AI/MCPTools.h \
+    Code/AI/MCPCaptureMatch.h \
+    Code/AI/MCPRegressionDiff.h \
     Code/AI/MCPAnalysisModel.h \
+    Code/AI/MCPDiagnostics.h \
+    Code/AI/MCPExternalTools.h \
+    Code/AI/MCPSourceMapping.h \
     Code/AI/MCPHttpServer.h \
+    Windows/Dialogs/InvestigationReportDialog.h \
     Windows/Dialogs/MCPStatusDialog.h
 FORMS    += Windows/Dialogs/AboutDialog.ui \
     Windows/Dialogs/CrashDialog.ui \

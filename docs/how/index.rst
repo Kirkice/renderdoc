@@ -21,3 +21,4 @@ How do I ...?
 	how_rgp_profile
 	how_python_extension
 	how_control_replay
+	how_mcp_compatibility

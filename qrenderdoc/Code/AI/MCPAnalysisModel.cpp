@@ -63,6 +63,7 @@ QString ConfidenceName(Confidence c)
     case Confidence::Confirmed: return QStringLiteral("confirmed");
     case Confidence::Inferred: return QStringLiteral("inferred");
     case Confidence::ToVerify: return QStringLiteral("toVerify");
+    case Confidence::Low: return QStringLiteral("low");
   }
   return QStringLiteral("inferred");
 }
@@ -793,26 +794,6 @@ QJsonObject LeakResultToJson(const LeakResult &result)
 // ---- P1-5 pipeline / shader snapshot and diff ----------------------------
 //
 
-// Compact rendering of a snapshot value for the before/after columns, matching
-// the plugin's stringify-style messages but staying readable for the common
-// scalar/enum cases (which is most of a pipeline state).
-static QString SnapshotValueString(const QJsonValue &v)
-{
-  if(v.isNull() || v.isUndefined())
-    return QString::fromUtf8("none");
-  if(v.isBool())
-    return v.toBool() ? QString::fromUtf8("true") : QString::fromUtf8("false");
-  if(v.isDouble())
-    return QString::number(v.toDouble());
-  if(v.isString())
-    return v.toString();
-  if(v.isArray())
-    return QString::fromUtf8(QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact));
-  if(v.isObject())
-    return QString::fromUtf8(QJsonDocument(v.toObject()).toJson(QJsonDocument::Compact));
-  return QString();
-}
-
 // Flatten a snapshot into dotted paths. Nested objects recurse; arrays index
 // their elements; leaf scalars/strings/bools are recorded. An empty container
 // is recorded as a single leaf so that "no output targets" vs "one output
@@ -966,6 +947,943 @@ QStringList SnapshotStagesFromPipelineJson(const QJsonObject &stateA, const QJso
       out.push_back(name);
   }
   return out;
+}
+
+//
+// ---- P1-6 structured performance report ----------------------------------
+//
+
+QJsonObject PerformanceHotPassToJson(const PerformanceHotPass &pass)
+{
+  QJsonObject j;
+  j[QStringLiteral("passId")] = pass.passId;
+  j[QStringLiteral("name")] = pass.name;
+  j[QStringLiteral("firstEventId")] = double(pass.firstEventId);
+  j[QStringLiteral("lastEventId")] = double(pass.lastEventId);
+  j[QStringLiteral("eventCount")] = double(pass.eventCount);
+  j[QStringLiteral("durationUs")] = pass.durationUs;
+  j[QStringLiteral("durationMs")] = pass.durationUs / 1000.0;
+  j[QStringLiteral("confidence")] = ConfidenceName(pass.confidence);
+  return j;
+}
+
+QJsonObject PerformanceHotEventToJson(const PerformanceHotEvent &hotEvent)
+{
+  QJsonObject j;
+  j[QStringLiteral("eventId")] = double(hotEvent.eventId);
+  j[QStringLiteral("name")] = hotEvent.name;
+  j[QStringLiteral("passId")] = hotEvent.passId;
+  j[QStringLiteral("passName")] = hotEvent.passName;
+  j[QStringLiteral("durationUs")] = hotEvent.durationUs;
+  j[QStringLiteral("durationMs")] = hotEvent.durationUs / 1000.0;
+  j[QStringLiteral("share")] = hotEvent.share;
+  j[QStringLiteral("pipelineAvailable")] = hotEvent.pipelineAvailable;
+  j[QStringLiteral("meshAvailable")] = hotEvent.meshAvailable;
+  j[QStringLiteral("confidence")] = ConfidenceName(hotEvent.confidence);
+
+  QJsonArray ev;
+  for(const EvidenceRef &e : hotEvent.evidence)
+    ev.push_back(EvidenceToJson(e));
+  j[QStringLiteral("evidence")] = ev;
+
+  // Explicit follow-up pointers so a client knows which additional tool to call
+  // to expand the evidence: the pipeline snapshot serialiser and the mesh-data
+  // tool. They mirror the plugin's `evidence` object keys.
+  QJsonObject followup;
+  if(hotEvent.pipelineAvailable)
+    followup[QStringLiteral("pipeline")] = QStringLiteral("renderdoc_getPipelineStateAtEvent");
+  if(hotEvent.meshAvailable)
+    followup[QStringLiteral("mesh")] = QStringLiteral("renderdoc_getMeshData");
+  j[QStringLiteral("followUp")] = followup;
+
+  return j;
+}
+
+QJsonObject PerformanceConclusionsToJson(const PerformanceConclusions &conclusions)
+{
+  QJsonObject j;
+  QJsonArray confirmed;
+  for(const QString &s : conclusions.confirmed)
+    confirmed.push_back(s);
+  QJsonArray inferred;
+  for(const QString &s : conclusions.inferred)
+    inferred.push_back(s);
+  QJsonArray toVerify;
+  for(const QString &s : conclusions.toVerify)
+    toVerify.push_back(s);
+  j[QStringLiteral("confirmed")] = confirmed;
+  j[QStringLiteral("inferred")] = inferred;
+  j[QStringLiteral("toVerify")] = toVerify;
+  return j;
+}
+
+QJsonObject PerformanceReportToJson(const PerformanceReport &report)
+{
+  QJsonObject j;
+  j[QStringLiteral("available")] = report.available;
+  j[QStringLiteral("timingAvailable")] = report.timingAvailable;
+  j[QStringLiteral("capturePath")] = report.capturePath;
+  j[QStringLiteral("api")] = report.api;
+  j[QStringLiteral("frameNumber")] = double(report.frameNumber);
+  j[QStringLiteral("totalTimedEvents")] = double(report.totalTimedEvents);
+  j[QStringLiteral("totalDurationUs")] = report.totalDurationUs;
+  j[QStringLiteral("totalDurationMs")] = report.totalDurationUs / 1000.0;
+  j[QStringLiteral("hotEventLimit")] = double(report.hotEventLimit);
+  j[QStringLiteral("confidence")] = ConfidenceName(report.confidence);
+  j[QStringLiteral("limitation")] = report.limitation;
+
+  QJsonArray passes;
+  for(const PerformanceHotPass &p : report.hottestPasses)
+    passes.push_back(PerformanceHotPassToJson(p));
+  j[QStringLiteral("hottestPasses")] = passes;
+
+  QJsonArray events;
+  for(const PerformanceHotEvent &e : report.hottestEvents)
+    events.push_back(PerformanceHotEventToJson(e));
+  j[QStringLiteral("hottestEvents")] = events;
+
+  j[QStringLiteral("conclusions")] = PerformanceConclusionsToJson(report.conclusions);
+
+  QJsonArray evidence;
+  for(const EvidenceRef &e : report.evidence)
+    evidence.push_back(EvidenceToJson(e));
+  j[QStringLiteral("evidence")] = evidence;
+
+  return j;
+}
+
+QString PerformanceReportToMarkdown(const PerformanceReport &report)
+{
+  QStringList lines;
+  lines << QStringLiteral("# RenderDoc Performance Report");
+  lines << QString();
+  lines << QStringLiteral("- Capture: %1").arg(
+      report.capturePath.isEmpty() ? QStringLiteral("(unknown)") : report.capturePath);
+  lines << QStringLiteral("- API: %1").arg(
+      report.api.isEmpty() ? QStringLiteral("(unknown)") : report.api);
+  lines << QStringLiteral("- GPU timings available: %1")
+               .arg(report.timingAvailable ? QStringLiteral("yes") : QStringLiteral("no"));
+  lines << QStringLiteral("- Timed events: %1").arg(report.totalTimedEvents);
+  lines << QString();
+
+  lines << QStringLiteral("## Hottest passes");
+  if(report.hottestPasses.isEmpty())
+  {
+    lines << QStringLiteral("- None");
+  }
+  else
+  {
+    for(const PerformanceHotPass &p : report.hottestPasses)
+    {
+      lines << QStringLiteral("- %1 (EID %2-%3): %4 us")
+                   .arg(p.name)
+                   .arg(p.firstEventId)
+                   .arg(p.lastEventId)
+                   .arg(QString::number(p.durationUs, 'f', 2));
+    }
+  }
+  lines << QString();
+
+  lines << QStringLiteral("## Hottest events");
+  if(report.hottestEvents.isEmpty())
+  {
+    lines << QStringLiteral("- None");
+  }
+  else
+  {
+    for(const PerformanceHotEvent &e : report.hottestEvents)
+      lines << QStringLiteral("- EID %1: %2 - %3 us")
+                   .arg(e.eventId)
+                   .arg(e.name)
+                   .arg(QString::number(e.durationUs, 'f', 2));
+  }
+  lines << QString();
+
+  lines << QStringLiteral("## Evidence and limitations");
+  for(const EvidenceRef &e : report.evidence)
+  {
+    lines << QStringLiteral("- %1: %2").arg(e.kind).arg(e.label);
+  }
+  if(!report.limitation.isEmpty())
+    lines << QStringLiteral("- %1").arg(report.limitation);
+  for(const QString &s : report.conclusions.confirmed)
+    lines << QStringLiteral("- Confirmed: %1").arg(s);
+  for(const QString &s : report.conclusions.inferred)
+    lines << QStringLiteral("- Inferred: %1").arg(s);
+  for(const QString &s : report.conclusions.toVerify)
+    lines << QStringLiteral("- Follow-up: %1").arg(s);
+
+  return lines.join(QString::fromUtf8("\n"));
+}
+
+//
+// ---- Event Browser advanced filtering and AI context (P1-7) ---------------
+//
+
+QString ActionFlagNames(ActionFlags flags)
+{
+  struct Entry
+  {
+    ActionFlags bit;
+    const char *name;
+  };
+
+  // Same ordering/naming as the P0 flags serialiser so the two never disagree.
+  static const Entry bits[] = {
+      {ActionFlags::Clear, "Clear"},
+      {ActionFlags::Drawcall, "Drawcall"},
+      {ActionFlags::Dispatch, "Dispatch"},
+      {ActionFlags::MeshDispatch, "MeshDispatch"},
+      {ActionFlags::CmdList, "CmdList"},
+      {ActionFlags::SetMarker, "SetMarker"},
+      {ActionFlags::PushMarker, "PushMarker"},
+      {ActionFlags::PopMarker, "PopMarker"},
+      {ActionFlags::Present, "Present"},
+      {ActionFlags::MultiAction, "MultiAction"},
+      {ActionFlags::Copy, "Copy"},
+      {ActionFlags::Resolve, "Resolve"},
+      {ActionFlags::GenMips, "GenMips"},
+      {ActionFlags::PassBoundary, "PassBoundary"},
+      {ActionFlags::DispatchRay, "DispatchRay"},
+      {ActionFlags::BuildAccStruct, "BuildAccStruct"},
+      {ActionFlags::Indexed, "Indexed"},
+      {ActionFlags::Instanced, "Instanced"},
+      {ActionFlags::Indirect, "Indirect"},
+      {ActionFlags::BeginPass, "BeginPass"},
+      {ActionFlags::EndPass, "EndPass"},
+  };
+
+  QStringList names;
+  for(const Entry &e : bits)
+  {
+    if((flags & e.bit) != ActionFlags::NoFlags)
+      names.push_back(QString::fromLatin1(e.name));
+  }
+  return names.join(QString::fromUtf8("|"));
+}
+
+bool IsRealDrawCall(ActionFlags flags)
+{
+  // Identical bit test to IsRealEffect: the plugin's string-flag isRealDrawCall
+  // and its marker-group check describe the same set, so we share the predicate.
+  return IsRealEffect(flags);
+}
+
+bool IsDebugMarkerName(const QString &name)
+{
+  const QString lower = name.toLower();
+  return lower.contains(QStringLiteral("debug")) || lower.contains(QStringLiteral("marker")) ||
+         lower.startsWith(QStringLiteral("rdoc"));
+}
+
+bool IsEmptyOperation(const ActionDescription &action)
+{
+  // A leaf real effect that produces no work: zero indices and zero instances.
+  return action.children.empty() && IsRealDrawCall(action.flags) && action.numIndices == 0 &&
+         action.numInstances == 0;
+}
+
+// Recursive depth-first filter walk. Semantics mirror the plugin's
+// filterDrawCallsAdvanced: `ancestorMatch` carries the marker scope down, a node
+// that fails but has surviving descendants is elided while its descendants are
+// promoted, and when a markerFilter is set a node survives only if it is in scope
+// or a descendant matched. Because the result here is FLAT, a node that passes and
+// its (filtered) children are both emitted, in pre-order - exactly what flattening
+// the plugin's kept `{...node, children}` subtree would produce.
+static void FilterEventBrowserWalk(const rdcarray<ActionDescription> &list, const SDFile &sdfile,
+                                   const EventBrowserFilterOptions &options,
+                                   const QHash<quint32, double> &timings, bool ancestorMatch,
+                                   uint32_t depth, QVector<EventBrowserContextRow> &out,
+                                   EventBrowserFilterStats &stats)
+{
+  for(const ActionDescription &a : list)
+  {
+    stats.totalEvents++;
+
+    const QString name = FromRdcStr(a.GetName(sdfile));
+    const bool selfMatch = !options.markerFilter.isEmpty() &&
+                           name.contains(options.markerFilter, Qt::CaseInsensitive);
+    const bool inScope = ancestorMatch || selfMatch;
+
+    // Children first: their outcome feeds this node's markerFilter verdict.
+    QVector<EventBrowserContextRow> childRows;
+    FilterEventBrowserWalk(a.children, sdfile, options, timings, inScope, depth + 1, childRows,
+                           stats);
+
+    const bool passesMin = options.eventIdMin == 0 || a.eventId >= options.eventIdMin;
+    const bool passesMax = options.eventIdMax == 0 || a.eventId <= options.eventIdMax;
+    const bool passesOnlyDraws = !options.onlyDrawCalls || IsRealDrawCall(a.flags);
+    const bool passesNoMarkers = !options.excludeMarkers || !IsMarkerGroup(a);
+    const bool passesNoDebug =
+        !options.excludeDebugMarkers || !(IsMarkerGroup(a) && IsDebugMarkerName(name));
+    const bool passesNoEmpty = !options.excludeEmptyOperations || !IsEmptyOperation(a);
+    const bool passesMarker =
+        options.markerFilter.isEmpty() || inScope || !childRows.isEmpty();
+
+    if(passesMin && passesMax && passesOnlyDraws && passesNoMarkers && passesNoDebug &&
+       passesNoEmpty && passesMarker)
+    {
+      EventBrowserContextRow row;
+      row.eventId = a.eventId;
+      row.name = name;
+      row.flags = ActionFlagNames(a.flags);
+      row.depth = depth;
+      row.numIndices = a.numIndices;
+      row.numInstances = a.numInstances;
+      if(timings.contains((quint32)a.eventId))
+      {
+        row.durationUs = timings.value((quint32)a.eventId, 0.0);
+        row.hasDuration = true;
+      }
+      row.confidence = Confidence::Confirmed;
+      out.push_back(row);
+    }
+
+    // Emitted whether or not the node itself passed: when it passed these are its
+    // filtered children; when it failed they are the promoted survivors.
+    for(const EventBrowserContextRow &r : childRows)
+      out.push_back(r);
+  }
+}
+
+void FilterEventBrowserActions(const rdcarray<ActionDescription> &roots, const SDFile &sdfile,
+                               const EventBrowserFilterOptions &options,
+                               const QHash<quint32, double> &timings,
+                               QVector<EventBrowserContextRow> &out,
+                               EventBrowserFilterStats &stats)
+{
+  const int before = out.size();
+
+  FilterEventBrowserWalk(roots, sdfile, options, timings, false, 0, out, stats);
+
+  // Hottest-first ordering over just the rows this call produced. Rows without a
+  // measurement sort last so an untimed capture still yields a stable list.
+  if(options.sortByDuration && out.size() - before > 1)
+  {
+    std::sort(out.begin() + before, out.end(),
+              [](const EventBrowserContextRow &l, const EventBrowserContextRow &r) {
+                const double lu = l.hasDuration ? l.durationUs : -1.0;
+                const double ru = r.hasDuration ? r.durationUs : -1.0;
+                if(lu != ru)
+                  return lu > ru;
+                return l.eventId < r.eventId;
+              });
+  }
+
+  stats.matchedEvents = (uint32_t)(out.size() - before);
+}
+
+QJsonObject EventBrowserContextRowToJson(const EventBrowserContextRow &row)
+{
+  QJsonObject j;
+  j[QStringLiteral("eventId")] = double(row.eventId);
+  j[QStringLiteral("name")] = row.name;
+  j[QStringLiteral("flags")] = row.flags;
+  j[QStringLiteral("depth")] = double(row.depth);
+  j[QStringLiteral("numIndices")] = double(row.numIndices);
+  j[QStringLiteral("numInstances")] = double(row.numInstances);
+  if(row.hasDuration)
+    j[QStringLiteral("durationUs")] = row.durationUs;
+  j[QStringLiteral("confidence")] = ConfidenceName(row.confidence);
+  return j;
+}
+
+QJsonObject EventBrowserFilterOptionsToJson(const EventBrowserFilterOptions &options)
+{
+  QJsonObject j;
+  if(!options.markerFilter.isEmpty())
+    j[QStringLiteral("markerFilter")] = options.markerFilter;
+  j[QStringLiteral("excludeMarkers")] = options.excludeMarkers;
+  j[QStringLiteral("onlyDrawCalls")] = options.onlyDrawCalls;
+  j[QStringLiteral("excludeDebugMarkers")] = options.excludeDebugMarkers;
+  j[QStringLiteral("excludeEmptyOperations")] = options.excludeEmptyOperations;
+  j[QStringLiteral("sortByDuration")] = options.sortByDuration;
+  j[QStringLiteral("eventIdMin")] = double(options.eventIdMin);
+  j[QStringLiteral("eventIdMax")] = double(options.eventIdMax);
+  return j;
+}
+
+static QJsonArray EventBrowserRowsToJson(const QVector<EventBrowserContextRow> &rows)
+{
+  QJsonArray arr;
+  for(const EventBrowserContextRow &r : rows)
+    arr.append(EventBrowserContextRowToJson(r));
+  return arr;
+}
+
+QJsonObject EventBrowserContextToJson(const EventBrowserContext &context)
+{
+  QJsonObject j;
+  j[QStringLiteral("available")] = context.available;
+  j[QStringLiteral("capturePath")] = context.capturePath;
+  j[QStringLiteral("api")] = context.api;
+  j[QStringLiteral("frameNumber")] = double(context.frameNumber);
+  j[QStringLiteral("filters")] = EventBrowserFilterOptionsToJson(context.filters);
+  j[QStringLiteral("totalEvents")] = double(context.totalEvents);
+  j[QStringLiteral("matchedEvents")] = double(context.matchedEvents);
+  j[QStringLiteral("truncated")] = context.truncated;
+  j[QStringLiteral("confidence")] = ConfidenceName(context.confidence);
+  if(!context.limitation.isEmpty())
+    j[QStringLiteral("limitation")] = context.limitation;
+  j[QStringLiteral("events")] = EventBrowserRowsToJson(context.rows);
+  j[QStringLiteral("aiContext")] = context.aiContext;
+  return j;
+}
+
+QString EventBrowserContextToText(const EventBrowserContext &context)
+{
+  QStringList lines;
+  lines << QStringLiteral("RenderDoc event context: %1 filtered event(s) of %2.")
+               .arg(context.matchedEvents)
+               .arg(context.totalEvents);
+  lines << QStringLiteral("Capture: %1 (API %2, frame %3)")
+               .arg(context.capturePath.isEmpty() ? QStringLiteral("(unknown)")
+                                                  : context.capturePath)
+               .arg(context.api.isEmpty() ? QStringLiteral("(unknown)") : context.api)
+               .arg(context.frameNumber);
+
+  QStringList filterBits;
+  if(!context.filters.markerFilter.isEmpty())
+    filterBits << QStringLiteral("marker=\"%1\"").arg(context.filters.markerFilter);
+  if(context.filters.excludeMarkers)
+    filterBits << QStringLiteral("no markers");
+  if(context.filters.onlyDrawCalls)
+    filterBits << QStringLiteral("draws only");
+  if(context.filters.excludeDebugMarkers)
+    filterBits << QStringLiteral("no debug markers");
+  if(context.filters.excludeEmptyOperations)
+    filterBits << QStringLiteral("no empty ops");
+  if(context.filters.eventIdMin != 0 || context.filters.eventIdMax != 0)
+    filterBits << QStringLiteral("EID %1..%2")
+                      .arg(context.filters.eventIdMin)
+                      .arg(context.filters.eventIdMax);
+  if(context.filters.sortByDuration)
+    filterBits << QStringLiteral("sorted by duration");
+  lines << QStringLiteral("Filters: %1").arg(filterBits.isEmpty() ? QStringLiteral("(none)")
+                                                                  : filterBits.join(QStringLiteral(", ")));
+
+  for(const EventBrowserContextRow &r : context.rows)
+  {
+    QString line = QStringLiteral("EID %1 %2").arg(r.eventId).arg(r.flags);
+    if(!r.name.isEmpty())
+      line += QStringLiteral(" \"%1\"").arg(r.name);
+    if(r.hasDuration)
+      line += QStringLiteral(" %1us").arg(r.durationUs, 0, 'f', 1);
+    line += QStringLiteral(" (indices %1, instances %2)").arg(r.numIndices).arg(r.numInstances);
+    lines << line;
+  }
+
+  if(context.truncated)
+    lines << QStringLiteral("(list truncated; raise the limit to see more events)");
+  if(!context.limitation.isEmpty())
+    lines << context.limitation;
+
+  lines << QStringLiteral("Focus on EIDs, flags, names, GPU duration, indices and instances; "
+                          "request pipeline/shader/resource evidence before inferring a cause.");
+
+  return lines.join(QString::fromUtf8("\n"));
+}
+
+//
+// ---- P1-8 investigation bookmarks ----------------------------------------
+//
+// The extended bookmark record is split in two halves by design: `note` is the
+// portable text that round-trips through the native capture bookmark section, and
+// everything else (id, title, conclusion, analysis, screenshot, confidence) lives
+// only in the sidecar document written next to the capture. That keeps a stock
+// RenderDoc build - and the Python API - reading exactly the `{eventId,text}` it
+// always did, while an extended reader still recovers the full investigation
+// record. Reading never fails on a missing/partial sidecar: it degrades to the
+// capture's plain bookmarks.
+//
+// The sidecar path is derived from the capture path, so it travels with the
+// capture file and never has to be registered anywhere. An empty capture path
+// yields an empty sidecar path, which the read/write paths treat as "unavailable".
+QString BookmarkSidecarPath(const QString &capturePath)
+{
+  if(capturePath.isEmpty())
+    return QString();
+  return capturePath + QStringLiteral(".bookmarks.json");
+}
+
+// The enum round-trips by name (ConfidenceName writes the same strings), so a
+// sidecar written by a future build that adds a confidence level still loads:
+// an unknown name degrades to Confirmed rather than being dropped or guessed at.
+static Confidence BookmarkConfidenceFromName(const QString &name)
+{
+  if(name.compare(QStringLiteral("inferred"), Qt::CaseInsensitive) == 0)
+    return Confidence::Inferred;
+  if(name.compare(QStringLiteral("toVerify"), Qt::CaseInsensitive) == 0)
+    return Confidence::ToVerify;
+  if(name.compare(QStringLiteral("low"), Qt::CaseInsensitive) == 0)
+    return Confidence::Low;
+  return Confidence::Confirmed;
+}
+
+// Records are read defensively: a missing field is simply empty, an event id may
+// be a number or a string (older writers used a string), and a record that is not
+// an object is treated as an empty record the caller can drop. No parse path
+// below ever throws, so a partially-written sidecar cannot stop a capture load.
+static BookmarkTaggedItem BookmarkTaggedItemFromJson(const QJsonValue &value)
+{
+  BookmarkTaggedItem item;
+  if(!value.isObject())
+    return item;
+
+  const QJsonObject o = value.toObject();
+  item.id = o.value(QStringLiteral("id")).toString();
+
+  const QJsonValue eid = o.value(QStringLiteral("eventId"));
+  if(eid.isString())
+    item.eventId = eid.toString();
+  else if(eid.isDouble())
+    item.eventId = QString::number((qulonglong)eid.toDouble());
+
+  item.title = o.value(QStringLiteral("title")).toString();
+  item.note = o.value(QStringLiteral("note")).toString();
+  item.conclusion = o.value(QStringLiteral("conclusion")).toString();
+  item.analysis = o.value(QStringLiteral("analysis")).toString();
+  item.screenshotPath = o.value(QStringLiteral("screenshotPath")).toString();
+  item.confidence = BookmarkConfidenceFromName(o.value(QStringLiteral("confidence")).toString());
+  return item;
+}
+
+QJsonObject BookmarkTaggedItemToJson(const BookmarkTaggedItem &item)
+{
+  QJsonObject j;
+  j[QStringLiteral("id")] = item.id;
+
+  if(!item.eventId.isEmpty())
+  {
+    // Prefer a numeric event id so the sidecar looks like a capture bookmark
+    // record; fall back to a string when the value is not a plain number.
+    bool ok = false;
+    const qulonglong eid = item.eventId.toULongLong(&ok);
+    if(ok)
+      j[QStringLiteral("eventId")] = double(eid);
+    else
+      j[QStringLiteral("eventId")] = item.eventId;
+  }
+
+  if(!item.title.isEmpty())
+    j[QStringLiteral("title")] = item.title;
+  if(!item.note.isEmpty())
+    j[QStringLiteral("note")] = item.note;
+  if(!item.conclusion.isEmpty())
+    j[QStringLiteral("conclusion")] = item.conclusion;
+  if(!item.analysis.isEmpty())
+    j[QStringLiteral("analysis")] = item.analysis;
+  if(!item.screenshotPath.isEmpty())
+    j[QStringLiteral("screenshotPath")] = item.screenshotPath;
+  j[QStringLiteral("confidence")] = ConfidenceName(item.confidence);
+  return j;
+}
+
+QJsonObject BookmarkFileToJson(const BookmarkFile &file)
+{
+  QJsonObject j;
+  j[QStringLiteral("version")] = double(file.version);
+  if(!file.capturePath.isEmpty())
+    j[QStringLiteral("capturePath")] = file.capturePath;
+
+  QJsonArray items;
+  for(const BookmarkTaggedItem &item : file.items)
+    items.append(BookmarkTaggedItemToJson(item));
+  j[QStringLiteral("bookmarks")] = items;
+  return j;
+}
+
+QJsonObject BookmarkSidecarToJson(const BookmarkSidecar &sidecar)
+{
+  QJsonObject j;
+  j[QStringLiteral("available")] = sidecar.available;
+  j[QStringLiteral("sidecarPresent")] = sidecar.sidecarPresent;
+  j[QStringLiteral("version")] = double(sidecar.version);
+  if(!sidecar.capturePath.isEmpty())
+    j[QStringLiteral("capturePath")] = sidecar.capturePath;
+  if(!sidecar.sidecarPath.isEmpty())
+    j[QStringLiteral("sidecarPath")] = sidecar.sidecarPath;
+
+  QJsonArray items;
+  for(const BookmarkTaggedItem &item : sidecar.items)
+    items.append(BookmarkTaggedItemToJson(item));
+  j[QStringLiteral("bookmarks")] = items;
+  j[QStringLiteral("count")] = items.size();
+  if(!sidecar.limitation.isEmpty())
+    j[QStringLiteral("limitation")] = sidecar.limitation;
+  return j;
+}
+
+// Parse is intentionally total: any malformed input yields an empty-but-usable
+// document whose version is 0, and the caller then simply falls back to the
+// capture's own bookmarks. This is the compatibility boundary for "old capture
+// data" - a capture with no sidecar takes this exact path.
+BookmarkFile ParseBookmarkFile(const QByteArray &json)
+{
+  BookmarkFile file;
+  if(json.isEmpty())
+    return file;
+
+  QJsonParseError err;
+  const QJsonDocument doc = QJsonDocument::fromJson(json, &err);
+  if(err.error != QJsonParseError::NoError || !doc.isObject())
+    return file;
+
+  const QJsonObject o = doc.object();
+  const QJsonValue ver = o.value(QStringLiteral("version"));
+  if(ver.isDouble())
+    file.version = (uint32_t)ver.toDouble();
+  file.capturePath = o.value(QStringLiteral("capturePath")).toString();
+
+  const QJsonArray arr = o.value(QStringLiteral("bookmarks")).toArray();
+  for(const QJsonValue &v : arr)
+  {
+    const BookmarkTaggedItem item = BookmarkTaggedItemFromJson(v);
+    // Drop rows that carry neither an identity nor any content; keep everything
+    // else so a note-only record is not lost just because it has no id yet.
+    if(!item.id.isEmpty() || !item.note.isEmpty())
+      file.items.append(item);
+  }
+  return file;
+}
+
+QByteArray SerializeBookmarkFile(const BookmarkFile &file)
+{
+  return QJsonDocument(BookmarkFileToJson(file)).toJson(QJsonDocument::Compact);
+}
+
+bool BookmarkHasExtendedFields(const BookmarkTaggedItem &item)
+{
+  // `note` is deliberately excluded: it is the one field the native capture can
+  // hold on its own, so a record with only a note needs no sidecar to survive.
+  return !item.title.isEmpty() || !item.conclusion.isEmpty() || !item.analysis.isEmpty() ||
+         !item.screenshotPath.isEmpty();
+}
+
+// Fold the sidecar into the capture's bookmark list. The capture is authoritative
+// for the portable `note` text (so a rename done in the Event Browser strip wins);
+// sidecar-only fields fill in the extended half. A sidecar entry is matched to a
+// capture bookmark by event id, falling back to an exact note match so records
+// written before an event id was recorded still bind. Sidecar entries that match
+// nothing are appended rather than dropped - an orphaned note is still evidence.
+QVector<BookmarkTaggedItem> MergeBookmarkSidecar(const rdcarray<EventBookmark> &bookmarks,
+                                                 const BookmarkFile &sidecar)
+{
+  QVector<BookmarkTaggedItem> merged;
+  QVector<bool> used(sidecar.items.size(), false);
+
+  for(const EventBookmark &b : bookmarks)
+  {
+    BookmarkTaggedItem item;
+    item.eventId = QString::number((qulonglong)b.eventId);
+    item.note = FromRdcStr(b.text);
+    item.confidence = Confidence::Confirmed;
+
+    for(int i = 0; i < sidecar.items.size(); i++)
+    {
+      if(used[i])
+        continue;
+
+      const BookmarkTaggedItem &s = sidecar.items[i];
+
+      bool eidOk = false;
+      const qulonglong sEid = s.eventId.toULongLong(&eidOk);
+      const bool byEid = eidOk && sEid == (qulonglong)b.eventId;
+      const bool byNote = !s.note.isEmpty() && s.note == item.note;
+
+      if(!byEid && !byNote)
+        continue;
+
+      if(!s.id.isEmpty())
+        item.id = s.id;
+      if(!s.title.isEmpty())
+        item.title = s.title;
+      if(item.note.isEmpty() && !s.note.isEmpty())
+        item.note = s.note;    // capture text empty: keep the sidecar's copy
+      if(!s.conclusion.isEmpty())
+        item.conclusion = s.conclusion;
+      if(!s.analysis.isEmpty())
+        item.analysis = s.analysis;
+      if(!s.screenshotPath.isEmpty())
+        item.screenshotPath = s.screenshotPath;
+      item.confidence = s.confidence;
+      used[i] = true;
+      break;
+    }
+
+    merged.append(item);
+  }
+
+  for(int i = 0; i < sidecar.items.size(); i++)
+  {
+    if(!used[i])
+      merged.append(sidecar.items[i]);
+  }
+
+  return merged;
+}
+
+// Field-wise upsert used by the write tool: a record whose id already exists is
+// updated in place, only non-empty incoming fields overwrite, so a partial update
+// never erases a field the caller did not mention (matching the plugin's
+// UpdateBookmarkTool spread-patch semantics). An unknown id is appended. Records
+// with an empty id are ignored here - the caller assigns ids before writing.
+BookmarkFile UpsertBookmarkRecords(const BookmarkFile &existing,
+                                   const QVector<BookmarkTaggedItem> &incoming)
+{
+  BookmarkFile result = existing;
+  if(result.version == 0)
+    result.version = 1;
+
+  for(const BookmarkTaggedItem &rec : incoming)
+  {
+    if(rec.id.isEmpty())
+      continue;
+
+    int found = -1;
+    for(int i = 0; i < result.items.size(); i++)
+    {
+      if(result.items[i].id == rec.id)
+      {
+        found = i;
+        break;
+      }
+    }
+
+    if(found < 0)
+    {
+      result.items.append(rec);
+      continue;
+    }
+
+    BookmarkTaggedItem &dst = result.items[found];
+    if(!rec.eventId.isEmpty())
+      dst.eventId = rec.eventId;
+    if(!rec.title.isEmpty())
+      dst.title = rec.title;
+    if(!rec.note.isEmpty())
+      dst.note = rec.note;
+    if(!rec.conclusion.isEmpty())
+      dst.conclusion = rec.conclusion;
+    if(!rec.analysis.isEmpty())
+      dst.analysis = rec.analysis;
+    if(!rec.screenshotPath.isEmpty())
+      dst.screenshotPath = rec.screenshotPath;
+    dst.confidence = rec.confidence;
+  }
+
+  return result;
+}
+
+//
+// ---- Investigation report (P1-9) ------------------------------------------
+//
+
+QStringList InvestigationReportLimitations(const InvestigationReport &report)
+{
+  QStringList out = report.limitations;
+
+  auto appendOnce = [&out](const QString &s) {
+    if(!s.isEmpty() && !out.contains(s))
+      out.append(s);
+  };
+
+  if(!report.bookmarksAvailable)
+    appendOnce(report.bookmarkLimitation.isEmpty()
+                   ? QStringLiteral("Investigation bookmarks are unavailable for this capture.")
+                   : report.bookmarkLimitation);
+
+  if(!report.performance.timingAvailable)
+    appendOnce(QStringLiteral("GPU timings are unavailable, so the performance ranking is a "
+                              "hypothesis rather than a measurement."));
+
+  if(!report.resources.notes.isEmpty())
+    appendOnce(QStringLiteral("Resource byte sizes are creation-time estimates."));
+
+  return out;
+}
+
+QJsonObject InvestigationReportToJson(const InvestigationReport &report)
+{
+  QJsonObject j;
+  j[QStringLiteral("available")] = report.available;
+  j[QStringLiteral("generatedAt")] = report.generatedAt;
+  j[QStringLiteral("capturePath")] = report.capturePath;
+  j[QStringLiteral("api")] = report.api;
+  j[QStringLiteral("frameNumber")] = double(report.frameNumber);
+  j[QStringLiteral("currentEvent")] = double(report.currentEvent);
+
+  QJsonArray bookmarks;
+  for(const BookmarkTaggedItem &b : report.bookmarks)
+    bookmarks.append(BookmarkTaggedItemToJson(b));
+  j[QStringLiteral("bookmarks")] = bookmarks;
+  j[QStringLiteral("bookmarkCount")] = bookmarks.size();
+  j[QStringLiteral("bookmarksAvailable")] = report.bookmarksAvailable;
+  if(!report.bookmarkLimitation.isEmpty())
+    j[QStringLiteral("bookmarkLimitation")] = report.bookmarkLimitation;
+
+  j[QStringLiteral("performance")] = PerformanceReportToJson(report.performance);
+  j[QStringLiteral("resources")] = ResourceMemoryAuditToJson(report.resources);
+
+  QJsonArray evidence;
+  for(const EvidenceRef &e : report.evidence)
+    evidence.append(EvidenceToJson(e));
+  j[QStringLiteral("evidence")] = evidence;
+
+  QJsonArray limitations;
+  for(const QString &s : InvestigationReportLimitations(report))
+    limitations.append(s);
+  j[QStringLiteral("limitations")] = limitations;
+
+  j[QStringLiteral("confidence")] = ConfidenceName(report.confidence);
+  return j;
+}
+
+QString InvestigationReportToMarkdown(const InvestigationReport &report)
+{
+  QStringList lines;
+  lines << QStringLiteral("# RenderDoc Investigation Report");
+  lines << QString();
+
+  lines << QStringLiteral("- Generated: %1").arg(
+      report.generatedAt.isEmpty() ? QStringLiteral("(unknown)") : report.generatedAt);
+  lines << QStringLiteral("- Capture: %1").arg(
+      report.capturePath.isEmpty() ? QStringLiteral("(unknown)") : report.capturePath);
+  lines << QStringLiteral("- API: %1").arg(
+      report.api.isEmpty() ? QStringLiteral("(unknown)") : report.api);
+  lines << QStringLiteral("- Frame: %1").arg(report.frameNumber);
+  lines << QStringLiteral("- Resources: %1 (%2 MiB)")
+               .arg(report.resources.totalResources)
+               .arg(QString::number(report.resources.totalMiB, 'f', 2));
+  lines << QString();
+
+  // Section title shared with the plugin so an existing client keeps working.
+  lines << QStringLiteral("## Bookmarks");
+  if(!report.bookmarksAvailable)
+  {
+    lines << QStringLiteral("- %1").arg(
+        report.bookmarkLimitation.isEmpty() ? QStringLiteral("Unavailable")
+                                            : report.bookmarkLimitation);
+  }
+  else if(report.bookmarks.isEmpty())
+  {
+    lines << QStringLiteral("- None");
+  }
+  else
+  {
+    for(const BookmarkTaggedItem &b : report.bookmarks)
+    {
+      QString line = QStringLiteral("- **%1**")
+                         .arg(b.title.isEmpty() ? QStringLiteral("(untitled)") : b.title);
+      if(!b.eventId.isEmpty())
+        line += QStringLiteral(" (EID %1)").arg(b.eventId);
+      if(!b.conclusion.isEmpty())
+        line += QStringLiteral(" - %1").arg(b.conclusion);
+      else if(!b.note.isEmpty())
+        line += QStringLiteral(" - %1").arg(b.note);
+      lines << line;
+    }
+  }
+  lines << QString();
+
+  lines << QStringLiteral("## Performance hotspots");
+  if(!report.performance.timingAvailable)
+  {
+    lines << QStringLiteral(
+        "- GPU timings unavailable; treat performance conclusions as hypotheses.");
+  }
+  else if(report.performance.hottestEvents.isEmpty())
+  {
+    lines << QStringLiteral("- None");
+  }
+  else
+  {
+    for(const PerformanceHotEvent &e : report.performance.hottestEvents)
+    {
+      lines << QStringLiteral("- EID %1: %2 - %3 us")
+                   .arg(e.eventId)
+                   .arg(e.name)
+                   .arg(QString::number(e.durationUs, 'f', 2));
+    }
+  }
+  lines << QString();
+
+  lines << QStringLiteral("## Resource footprint");
+  lines << QStringLiteral("- Tracked resources: %1").arg(report.resources.totalResources);
+  lines << QStringLiteral("- Textures: %1 / Buffers: %2 / Shaders: %3")
+               .arg(report.resources.textureCount)
+               .arg(report.resources.bufferCount)
+               .arg(report.resources.shaderCount);
+  lines << QStringLiteral("- Total: %1 MiB").arg(QString::number(report.resources.totalMiB, 'f', 2));
+  if(report.resources.largestResources.isEmpty())
+  {
+    lines << QStringLiteral("- Largest: None");
+  }
+  else
+  {
+    for(const ResourceMemoryRow &r : report.resources.largestResources)
+      lines << QStringLiteral("- %1 (%2): %3 bytes")
+                   .arg(r.name.isEmpty() ? ResourceIdToString(r.resourceId) : r.name)
+                   .arg(r.type)
+                   .arg(r.byteSize);
+  }
+  lines << QString();
+
+  lines << QStringLiteral("## Limitations");
+  const QStringList limitations = InvestigationReportLimitations(report);
+  if(limitations.isEmpty())
+  {
+    lines << QStringLiteral("- None");
+  }
+  else
+  {
+    for(const QString &s : limitations)
+      lines << QStringLiteral("- %1").arg(s);
+  }
+
+  return lines.join(QString::fromUtf8("\n"));
+}
+
+QString BookmarkSidecarToText(const BookmarkSidecar &sidecar)
+{
+  QStringList lines;
+  lines << QStringLiteral("RenderDoc investigation bookmarks: %1 record(s).").arg(sidecar.items.size());
+
+  if(!sidecar.available)
+    lines << QStringLiteral("(capture not open locally; extended bookmark fields are unavailable)");
+  else if(!sidecar.sidecarPresent)
+    lines << QStringLiteral("(no extended bookmark sidecar yet; capture bookmarks are plain text)");
+
+  if(!sidecar.capturePath.isEmpty())
+    lines << QStringLiteral("Capture: %1").arg(sidecar.capturePath);
+  if(!sidecar.sidecarPath.isEmpty())
+    lines << QStringLiteral("Sidecar: %1").arg(sidecar.sidecarPath);
+
+  for(const BookmarkTaggedItem &item : sidecar.items)
+  {
+    QString line = QStringLiteral("- [%1]")
+                       .arg(item.id.isEmpty() ? QStringLiteral("no-id") : item.id);
+    if(!item.eventId.isEmpty())
+      line += QStringLiteral(" EID %1").arg(item.eventId);
+    if(!item.title.isEmpty())
+      line += QStringLiteral(" \"%1\"").arg(item.title);
+    if(!item.conclusion.isEmpty())
+      line += QStringLiteral(" => %1").arg(item.conclusion);
+    lines << line;
+
+    if(!item.note.isEmpty())
+      lines << QStringLiteral("    note: %1").arg(item.note);
+    if(!item.analysis.isEmpty())
+      lines << QStringLiteral("    analysis: %1").arg(item.analysis);
+    if(!item.screenshotPath.isEmpty())
+      lines << QStringLiteral("    screenshot: %1").arg(item.screenshotPath);
+    lines << QStringLiteral("    confidence: %1").arg(ConfidenceName(item.confidence));
+  }
+
+  if(!sidecar.limitation.isEmpty())
+    lines << sidecar.limitation;
+
+  return lines.join(QString::fromUtf8("\n"));
 }
 
 }    // namespace MCP

@@ -32,11 +32,8 @@
 #include "Code/Interface/QRDInterface.h"
 #include "Code/QRDUtils.h"
 
-// Provides the ToStr<> specialisations for ResourceType, TextureType, CompType,
-// ResourceFormatType, GraphicsAPI and GPUVendor. This is included exactly once
-// per translation unit that needs enum stringification, matching QRDUtils.cpp.
-#include "renderdoc_tostr.inl"
-
+#include <QDateTime>
+#include <QFile>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonValue>
@@ -46,7 +43,6 @@
 #include <algorithm>
 
 #include "Code/AI/MCPAnalysisModel.h"
-#include "renderdoc/api/replay/version.h"
 
 namespace MCP
 {
@@ -109,6 +105,11 @@ static QJsonObject ActionToJson(const ActionDescription &a, const SDFile &sdfile
     }
   }
   return j;
+}
+
+namespace
+{
+QJsonObject FilterFields(const QJsonObject &j, const QStringList &fields);
 }
 
 //
@@ -212,12 +213,9 @@ QString ResourceFormatString(const ResourceFormat &f)
   return s;
 }
 
-// The remaining enum-to-name helpers are trivial wrappers around the ToStr<>
-// specialisations that this translation unit (and only this one) pulls in via
-// renderdoc_tostr.inl. They live here so tool code never has to reference the
-// ToStr<> template directly and therefore never has to include the .inl a
-// second time (which would duplicate the non-inline specialisations at link
-// time). See the module-boundary note in MCPToolRegistry.h.
+// The remaining enum-to-name helpers wrap the ToStr<> specialisations emitted
+// by QRDUtils.cpp. Keeping the definitions there avoids duplicating the
+// non-inline specialisations across qrenderdoc translation units.
 QString ShaderStageName(ShaderStage s)
 {
   return ToQStr(s);
@@ -683,7 +681,7 @@ ToolResult QueryAdapter::Textures(const QString &nameFilter, int maxCount, const
       if(WantField(fields, "cubemap"))
         j[QStringLiteral("cubemap")] = t.cubemap;
       if(WantField(fields, "msaaSamples"))
-        j[QStringLiteral("msaaSamples")] = t.msSamp > 1 ? t.msSamp : 1;
+        j[QStringLiteral("msaaSamples")] = double(t.msSamp > 1 ? t.msSamp : 1);
       if(WantField(fields, "msaaQuality"))
         j[QStringLiteral("msaaQuality")] = double(t.msQual);
       if(WantField(fields, "byteSize"))
@@ -736,7 +734,7 @@ ToolResult QueryAdapter::Texture(ResourceId id)
     j[QStringLiteral("mips")] = double(t->mips);
     j[QStringLiteral("arraySize")] = double(t->arraysize);
     j[QStringLiteral("cubemap")] = t->cubemap;
-    j[QStringLiteral("msaaSamples")] = t->msSamp > 1 ? t->msSamp : 1;
+    j[QStringLiteral("msaaSamples")] = double(t->msSamp > 1 ? t->msSamp : 1);
     j[QStringLiteral("msaaQuality")] = double(t->msQual);
     j[QStringLiteral("byteSize")] = double(t->byteSize);
     j[QStringLiteral("usage")] = detail::TextureUsageString(t->creationFlags);
@@ -865,6 +863,324 @@ ToolResult QueryAdapter::Bookmarks()
     j[QStringLiteral("count")] = arr.size();
     return ToolResult::Success(j);
   });
+}
+
+//
+// ---- P1-8 investigation bookmarks ----------------------------------------
+//
+// A bookmark is split in two halves on purpose. The `note` round-trips through
+// the capture's own `renderdoc/ui/bookmarks` section, so a bookmark placed by the
+// AI tool appears in the Event Browser strip and a rename done there stays visible
+// to the AI. The extended fields (id, title, conclusion, analysis, screenshot)
+// live only in a sidecar JSON document written next to the capture, so widening
+// the capture format - which would break the Event Browser strip, the Python API
+// and every older build reading the capture - is never necessary:
+//
+//   * a stock capture opens with its plain bookmarks and no sidecar, and reads
+//     degrade gracefully instead of failing;
+//   * an extended capture opened by a stock build shows the plain bookmarks and
+//     simply ignores a sidecar file it does not know about.
+//
+// Reads are snapshot-only (no replay thread). Writes mirror the note into the
+// native bookmark list and persist the extended half to the sidecar; because
+// ToolRegistry::Call has no side-effect gate, the tool registration - not the
+// registry - is what requires the caller to have confirmed the write.
+namespace
+{
+QString CapturePathFor(ICaptureContext *ctx)
+{
+  if(ctx == NULL)
+    return QString();
+  return FromRdcStr(ctx->GetCaptureFilename());
+}
+
+// Read a whole text file. A missing file is the common case (no sidecar exists
+// until the first extended bookmark is written) so it is reported, not thrown.
+bool ReadTextFile(const QString &path, QByteArray &out)
+{
+  out.clear();
+  if(path.isEmpty())
+    return false;
+
+  QFile f(path);
+  if(!f.open(QIODevice::ReadOnly | QIODevice::Text))
+    return false;
+
+  out = f.readAll();
+  f.close();
+  return true;
+}
+
+bool WriteTextFile(const QString &path, const QByteArray &contents)
+{
+  if(path.isEmpty())
+    return false;
+
+  QFile f(path);
+  if(!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+    return false;
+
+  const qint64 written = f.write(contents);
+  f.close();
+  return written == (qint64)contents.size();
+}
+
+// Bookmark mutations touch the native bookmark list, which the UI owns, so they
+// run on the UI thread exactly like the snapshot reads do.
+void OnUIThread(ICaptureContext *ctx, const std::function<void()> &fn)
+{
+  if(ctx == NULL)
+    return;
+
+  IMainWindow *main = ctx->GetMainWindow();
+  QWidget *w = main ? main->Widget() : NULL;
+
+  if(w == NULL || GUIInvoke::onUIThread())
+    fn();
+  else
+    GUIInvoke::blockcall(w, [&]() { fn(); });
+}
+}    // anonymous namespace
+
+BookmarkSidecar QueryAdapter::ReadBookmarkSidecar()
+{
+  return ReadOnUIThread<BookmarkSidecar>([this]() -> BookmarkSidecar {
+    BookmarkSidecar sidecar;
+
+    if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    {
+      sidecar.limitation = QStringLiteral("no capture is loaded");
+      return sidecar;
+    }
+
+    const QString capturePath = CapturePathFor(m_Ctx);
+    sidecar.capturePath = capturePath;
+    sidecar.sidecarPath = BookmarkSidecarPath(capturePath);
+
+    if(capturePath.isEmpty())
+    {
+      // A capture with no local filename (opened from a stream) has nowhere to
+      // keep a sidecar; the plain bookmarks still read fine.
+      sidecar.limitation = QStringLiteral(
+          "capture has no local filename; extended bookmark fields cannot be stored");
+    }
+    else
+    {
+      QByteArray json;
+      if(ReadTextFile(sidecar.sidecarPath, json))
+      {
+        const BookmarkFile file = ParseBookmarkFile(json);
+        sidecar.version = file.version;
+        sidecar.sidecarPresent = !file.items.isEmpty();
+
+        // The capture's own bookmarks drive the ordering; the sidecar only adds
+        // the extended fields and any sidecar-only records.
+        sidecar.items = MergeBookmarkSidecar(m_Ctx->GetBookmarks(), file);
+        sidecar.available = true;
+        return sidecar;
+      }
+    }
+
+    // No sidecar (or none readable): every bookmark is a plain capture bookmark.
+    sidecar.items = MergeBookmarkSidecar(m_Ctx->GetBookmarks(), BookmarkFile());
+    sidecar.available = true;
+    return sidecar;
+  });
+}
+
+ToolResult QueryAdapter::BookmarksExtended(int maxCount, const QStringList &fields)
+{
+  const int clamped = maxCount > 0 ? (maxCount > 2000 ? 2000 : maxCount) : 200;
+
+  const BookmarkSidecar sidecar = ReadBookmarkSidecar();
+  if(!sidecar.available)
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+
+  BookmarkSidecar capped = sidecar;
+  capped.items = sidecar.items.mid(0, clamped);
+  const bool truncated = capped.items.size() < sidecar.items.size();
+
+  QJsonObject j = BookmarkSidecarToJson(capped);
+  j[QStringLiteral("total")] = sidecar.items.size();
+  j[QStringLiteral("truncated")] = truncated;
+  j[QStringLiteral("aiContext")] = BookmarkSidecarToText(capped);
+  j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+
+  return ToolResult::Success(FilterFields(j, fields), BookmarkSidecarToText(capped));
+}
+
+ToolResult QueryAdapter::UpdateBookmark(const BookmarkTaggedItem &item, uint32_t eventId,
+                                        CallContext &call)
+{
+  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+  if(call.IsCancelled())
+    return ToolResult::Failure(Error(ErrorCode::Cancelled, "request cancelled"));
+
+  const QString capturePath = CapturePathFor(m_Ctx);
+  const QString sidecarPath = BookmarkSidecarPath(capturePath);
+  if(sidecarPath.isEmpty())
+    return ToolResult::Failure(Error(
+        ErrorCode::Unsupported,
+        QStringLiteral("capture has no local filename; extended bookmarks cannot be stored")));
+
+  // An explicit id wins; otherwise derive a stable one from the event so repeated
+  // updates to the same event overwrite rather than piling up (the plugin's
+  // "one bookmark per event" behaviour).
+  const uint32_t eid = eventId != 0 ? eventId : item.eventId.toUInt();
+
+  BookmarkTaggedItem record = item;
+  if(record.id.isEmpty())
+    record.id = QStringLiteral("bm-%1").arg(eid);
+  if(record.eventId.isEmpty() && eid != 0)
+    record.eventId = QString::number(eid);
+
+  BookmarkFile existing;
+  QByteArray json;
+  if(ReadTextFile(sidecarPath, json))
+    existing = ParseBookmarkFile(json);
+  if(existing.capturePath.isEmpty())
+    existing.capturePath = capturePath;
+  if(existing.version == 0)
+    existing.version = 1;
+
+  QVector<BookmarkTaggedItem> incoming;
+  incoming.append(record);
+  const BookmarkFile merged = UpsertBookmarkRecords(existing, incoming);
+
+  if(!WriteTextFile(sidecarPath, SerializeBookmarkFile(merged)))
+    return ToolResult::Failure(Error(ErrorCode::InternalError,
+                                     QStringLiteral("failed to write the bookmark sidecar")));
+
+  // Mirror the stored note into the native bookmark list so the Event Browser
+  // strip shows it and it joins the normal "unsaved modifications" flow. A note
+  // with no event id cannot be a native bookmark, so it stays sidecar-only.
+  if(eid != 0)
+  {
+    QString note = record.note;
+    for(const BookmarkTaggedItem &it : merged.items)
+    {
+      if(it.id == record.id)
+      {
+        note = it.note;
+        break;
+      }
+    }
+
+    const QByteArray utf8 = note.toUtf8();
+    EventBookmark mark(eid);
+    mark.text = rdcstr(utf8.constData(), (size_t)utf8.size());
+
+    OnUIThread(m_Ctx, [this, mark]() { m_Ctx->SetBookmark(mark); });
+  }
+
+  QJsonObject j;
+  j[QStringLiteral("bookmark")] = BookmarkTaggedItemToJson(record);
+  j[QStringLiteral("eventId")] = double(eid);
+  j[QStringLiteral("sidecarPath")] = sidecarPath;
+  j[QStringLiteral("count")] = merged.items.size();
+  return ToolResult::Success(j, QStringLiteral("Stored investigation bookmark %1.").arg(record.id));
+}
+
+ToolResult QueryAdapter::RemoveBookmark(const QString &bookmarkId, uint32_t eventId,
+                                        CallContext &call)
+{
+  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+  if(call.IsCancelled())
+    return ToolResult::Failure(Error(ErrorCode::Cancelled, "request cancelled"));
+
+  const QString capturePath = CapturePathFor(m_Ctx);
+  const QString sidecarPath = BookmarkSidecarPath(capturePath);
+  if(sidecarPath.isEmpty())
+    return ToolResult::Failure(Error(
+        ErrorCode::Unsupported,
+        QStringLiteral("capture has no local filename; extended bookmarks cannot be stored")));
+
+  BookmarkFile file;
+  QByteArray json;
+  if(ReadTextFile(sidecarPath, json))
+    file = ParseBookmarkFile(json);
+
+  QString effectiveId = bookmarkId;
+  uint32_t effectiveEid = eventId;
+
+  // Fill in whichever of id/event id was not supplied, using the other. This lets
+  // a caller remove by the stable id or by the event, whichever it has to hand.
+  if(effectiveId.isEmpty() && effectiveEid != 0)
+  {
+    for(const BookmarkTaggedItem &it : file.items)
+    {
+      bool ok = false;
+      if(it.eventId.toUInt(&ok) == effectiveEid && ok)
+      {
+        effectiveId = it.id;
+        break;
+      }
+    }
+  }
+  else if(effectiveEid == 0 && !effectiveId.isEmpty())
+  {
+    for(const BookmarkTaggedItem &it : file.items)
+    {
+      if(it.id == effectiveId)
+      {
+        effectiveEid = it.eventId.toUInt();
+        break;
+      }
+    }
+  }
+
+  if(effectiveId.isEmpty() && effectiveEid == 0)
+    return ToolResult::Failure(Error(ErrorCode::InvalidParams,
+                                     QStringLiteral("a bookmark id or an event id is required")));
+
+  int removedIndex = -1;
+  uint32_t removedEventId = 0;
+  for(int i = 0; i < file.items.size(); i++)
+  {
+    bool match = false;
+
+    if(!effectiveId.isEmpty() && file.items[i].id == effectiveId)
+      match = true;
+    else if(effectiveEid != 0)
+    {
+      bool ok = false;
+      match = (file.items[i].eventId.toUInt(&ok) == effectiveEid) && ok;
+    }
+
+    if(match)
+    {
+      removedIndex = i;
+      removedEventId = file.items[i].eventId.toUInt();
+      break;
+    }
+  }
+
+  if(removedIndex >= 0)
+  {
+    file.items.remove(removedIndex);
+    if(!WriteTextFile(sidecarPath, SerializeBookmarkFile(file)))
+      return ToolResult::Failure(Error(ErrorCode::InternalError,
+                                       QStringLiteral("failed to write the bookmark sidecar")));
+  }
+
+  // Drop the native bookmark as well so the strip and the sidecar stay in step.
+  // A sidecar-only record has no native counterpart, which is not an error.
+  if(removedEventId == 0)
+    removedEventId = effectiveEid;
+  if(removedEventId != 0)
+    OnUIThread(m_Ctx, [this, removedEventId]() { m_Ctx->RemoveBookmark(removedEventId); });
+
+  QJsonObject j;
+  j[QStringLiteral("id")] = effectiveId;
+  j[QStringLiteral("eventId")] = double(effectiveEid);
+  j[QStringLiteral("removed")] = removedIndex >= 0;
+  j[QStringLiteral("sidecarPath")] = sidecarPath;
+  j[QStringLiteral("count")] = file.items.size();
+  return ToolResult::Success(j, QStringLiteral("Removed investigation bookmark %1.")
+                                       .arg(effectiveId.isEmpty() ? QString::number(effectiveEid)
+                                                                  : effectiveId));
 }
 
 ToolResult QueryAdapter::PipelineSnapshot(const QStringList &fields)
@@ -1228,7 +1544,7 @@ ToolResult QueryAdapter::FrameSummary(const QStringList &fields)
     if(want("statistics"))
     {
       FrameDescription frame = m_Ctx->FrameInfo();
-      FrameStatistics stats;
+      MCP::FrameStatistics stats;
       BuildFrameStatistics(frame, stats);
       j[QStringLiteral("statistics")] = FrameStatisticsToJson(stats);
     }
@@ -1373,10 +1689,7 @@ ToolResult QueryAdapter::AnalyzeHotEvent(uint32_t eventId, bool includeShaderInf
     QHash<quint64, QString> names;
     for(const ResourceDescription &r : m_Ctx->GetResources())
     {
-      const QString name = !r.name.empty() ? FromRdcStr(r.name)
-                                           : (!r.autogeneratedName.empty()
-                                                  ? FromRdcStr(r.autogeneratedName)
-                                                  : QString());
+      const QString name = FromRdcStr(m_Ctx->GetResourceName(r.resourceId));
       if(!name.isEmpty())
         names.insert(ResIdValue(r.resourceId), name);
     }
@@ -1389,7 +1702,7 @@ ToolResult QueryAdapter::AnalyzeHotEvent(uint32_t eventId, bool includeShaderInf
     for(const TextureDescription &t : m_Ctx->GetTextures())
     {
       HotTexInfo info;
-      info.name = !t.autogeneratedName.empty() ? FromRdcStr(t.autogeneratedName) : QString();
+      info.name = FromRdcStr(m_Ctx->GetResourceName(t.resourceId));
       info.format = detail::ResourceFormatString(t.format);
       info.width = t.width;
       info.height = t.height;
@@ -1922,8 +2235,9 @@ QHash<quint32, double> FetchEventTimings(IReplayController &replay)
 ToolResult QueryAdapter::GetPassGraph(bool includeResources, CallContext &call,
                                       const QStringList &fields)
 {
+  const CaptureSnapshot snap = Snapshot();
   return DispatchBlock("renderdoc_getPassGraph", call,
-                       [includeResources, fields](IReplayController &replay) -> ToolResult {
+                       [includeResources, fields, snap](IReplayController &replay) -> ToolResult {
     auto want = [&](const char *n) {
       return fields.isEmpty() || fields.contains(QString::fromLatin1(n));
     };
@@ -2040,7 +2354,7 @@ ToolResult QueryAdapter::GetPassGraph(bool includeResources, CallContext &call,
       j = filtered;
     }
 
-    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(j);
   });
 }
@@ -2048,6 +2362,7 @@ ToolResult QueryAdapter::GetPassGraph(bool includeResources, CallContext &call,
 ToolResult QueryAdapter::FindDrawsByShader(const QString &term, CallContext &call,
                                            const QStringList &fields)
 {
+  const CaptureSnapshot snap = Snapshot();
   // Resource display names are materialised on the UI thread once, then captured
   // by value so the replay lambda never touches ICaptureContext.
   const QHash<quint64, QString> names =
@@ -2055,10 +2370,7 @@ ToolResult QueryAdapter::FindDrawsByShader(const QString &term, CallContext &cal
     QHash<quint64, QString> map;
     for(const ResourceDescription &r : m_Ctx->GetResources())
     {
-      const QString name = !r.name.empty() ? FromRdcStr(r.name)
-                                           : (!r.autogeneratedName.empty()
-                                                  ? FromRdcStr(r.autogeneratedName)
-                                                  : QString());
+      const QString name = FromRdcStr(m_Ctx->GetResourceName(r.resourceId));
       if(!name.isEmpty())
         map.insert(ResIdValue(r.resourceId), name);
     }
@@ -2066,7 +2378,7 @@ ToolResult QueryAdapter::FindDrawsByShader(const QString &term, CallContext &cal
   });
 
   return DispatchBlock("renderdoc_findDrawsByShader", call,
-                       [term, names, fields](IReplayController &replay) -> ToolResult {
+                       [term, names, fields, snap](IReplayController &replay) -> ToolResult {
     const QString needle = term.toLower();
 
     ReverseSearchResult result;
@@ -2129,7 +2441,7 @@ ToolResult QueryAdapter::FindDrawsByShader(const QString &term, CallContext &cal
       }
       j = filtered;
     }
-    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(j);
   });
 }
@@ -2137,15 +2449,13 @@ ToolResult QueryAdapter::FindDrawsByShader(const QString &term, CallContext &cal
 ToolResult QueryAdapter::FindDrawsByTexture(const QString &term, CallContext &call,
                                             const QStringList &fields)
 {
+  const CaptureSnapshot snap = Snapshot();
   const QHash<quint64, QString> names =
       ReadOnUIThread<QHash<quint64, QString>>([this]() -> QHash<quint64, QString> {
     QHash<quint64, QString> map;
     for(const ResourceDescription &r : m_Ctx->GetResources())
     {
-      const QString name = !r.name.empty() ? FromRdcStr(r.name)
-                                           : (!r.autogeneratedName.empty()
-                                                  ? FromRdcStr(r.autogeneratedName)
-                                                  : QString());
+      const QString name = FromRdcStr(m_Ctx->GetResourceName(r.resourceId));
       if(!name.isEmpty())
         map.insert(ResIdValue(r.resourceId), name);
     }
@@ -2153,7 +2463,7 @@ ToolResult QueryAdapter::FindDrawsByTexture(const QString &term, CallContext &ca
   });
 
   return DispatchBlock("renderdoc_findDrawsByTexture", call,
-                       [term, names, fields](IReplayController &replay) -> ToolResult {
+                       [term, names, fields, snap](IReplayController &replay) -> ToolResult {
     const QString needle = term.toLower();
 
     ReverseSearchResult result;
@@ -2214,7 +2524,7 @@ ToolResult QueryAdapter::FindDrawsByTexture(const QString &term, CallContext &ca
       }
       j = filtered;
     }
-    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(j);
   });
 }
@@ -2223,16 +2533,14 @@ ToolResult QueryAdapter::FindDrawsByResourceId(ResourceId id, CallContext &call,
                                                const QStringList &fields)
 {
   const quint64 want = ResIdValue(id);
+  const CaptureSnapshot snap = Snapshot();
 
   const QHash<quint64, QString> names =
       ReadOnUIThread<QHash<quint64, QString>>([this]() -> QHash<quint64, QString> {
     QHash<quint64, QString> map;
     for(const ResourceDescription &r : m_Ctx->GetResources())
     {
-      const QString name = !r.name.empty() ? FromRdcStr(r.name)
-                                           : (!r.autogeneratedName.empty()
-                                                  ? FromRdcStr(r.autogeneratedName)
-                                                  : QString());
+      const QString name = FromRdcStr(m_Ctx->GetResourceName(r.resourceId));
       if(!name.isEmpty())
         map.insert(ResIdValue(r.resourceId), name);
     }
@@ -2240,7 +2548,7 @@ ToolResult QueryAdapter::FindDrawsByResourceId(ResourceId id, CallContext &call,
   });
 
   return DispatchBlock("renderdoc_findDrawsByResourceId", call,
-                       [want, id, names, fields](IReplayController &replay) -> ToolResult {
+                       [want, id, names, fields, snap](IReplayController &replay) -> ToolResult {
     ReverseSearchResult result;
     result.query = QStringLiteral("resource");
     result.term = ResourceIdToString(id);
@@ -2297,7 +2605,7 @@ ToolResult QueryAdapter::FindDrawsByResourceId(ResourceId id, CallContext &call,
       }
       j = filtered;
     }
-    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(j);
   });
 }
@@ -2306,16 +2614,14 @@ ToolResult QueryAdapter::TraceResourceUsage(ResourceId id, CallContext &call,
                                             const QStringList &fields)
 {
   const quint64 want = ResIdValue(id);
+  const CaptureSnapshot snap = Snapshot();
 
   const QHash<quint64, QString> names =
       ReadOnUIThread<QHash<quint64, QString>>([this]() -> QHash<quint64, QString> {
     QHash<quint64, QString> map;
     for(const ResourceDescription &r : m_Ctx->GetResources())
     {
-      const QString name = !r.name.empty() ? FromRdcStr(r.name)
-                                           : (!r.autogeneratedName.empty()
-                                                  ? FromRdcStr(r.autogeneratedName)
-                                                  : QString());
+      const QString name = FromRdcStr(m_Ctx->GetResourceName(r.resourceId));
       if(!name.isEmpty())
         map.insert(ResIdValue(r.resourceId), name);
     }
@@ -2323,7 +2629,7 @@ ToolResult QueryAdapter::TraceResourceUsage(ResourceId id, CallContext &call,
   });
 
   return DispatchBlock("renderdoc_traceResourceUsage", call,
-                       [want, id, names](IReplayController &replay) -> ToolResult {
+                       [want, id, names, snap](IReplayController &replay) -> ToolResult {
     const SDFile &sdfile = replay.GetStructuredFile();
 
     rdcarray<const ActionDescription *> leaves;
@@ -2381,7 +2687,7 @@ ToolResult QueryAdapter::TraceResourceUsage(ResourceId id, CallContext &call,
     j[QStringLiteral("producerCount")] = producers.size();
     j[QStringLiteral("consumerCount")] = consumers.size();
     j[QStringLiteral("accesses")] = accesses;
-    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(j);
   });
 }
@@ -2431,13 +2737,122 @@ QVector<ResourceLite> SnapshotResources(ICaptureContext *ctx)
   {
     ResourceLite lite;
     lite.id = ResIdValue(r.resourceId);
-    lite.name = !r.name.empty() ? FromRdcStr(r.name)
-                                : (!r.autogeneratedName.empty() ? FromRdcStr(r.autogeneratedName)
-                                                                : QString());
+    lite.name = FromRdcStr(ctx->GetResourceName(r.resourceId));
     lite.type = detail::ResourceTypeName(r.type);
     lite.byteSize = sizes.value(lite.id, 0);
     out.append(lite);
   }
+  return out;
+}
+
+// The whole-capture memory audit over the UI-thread resource tables. Returns the
+// same `ResourceMemoryAudit` the resourceMemoryAudit tool emits, so the
+// investigation report (P1-9) reuses one definition of every field. `cap` bounds
+// `largestResources` (0 == unlimited).
+ResourceMemoryAudit SnapshotMemoryAudit(ICaptureContext *ctx, int cap)
+{
+  ResourceMemoryAudit out;
+
+  const rdcarray<TextureDescription> textures = ctx->GetTextures();
+  const rdcarray<BufferDescription> buffers = ctx->GetBuffers();
+  const rdcarray<ResourceDescription> resources = ctx->GetResources();
+
+  QHash<QString, uint32_t> formatCounts;
+  QVector<QString> dimensions;
+  QVector<ResourceMemoryRow> rows;
+
+  for(const TextureDescription &t : textures)
+  {
+    ResourceMemoryRow r;
+    r.resourceId = t.resourceId;
+    r.name = FromRdcStr(ctx->GetResourceName(t.resourceId));
+    r.type = QStringLiteral("Texture");
+    r.textureType = detail::TextureTypeName(t.type);
+    r.byteSize = t.byteSize;
+    r.width = t.width;
+    r.height = t.height;
+    r.depth = t.depth;
+    r.mips = t.mips;
+    r.arraySize = t.arraysize;
+    r.format = detail::ResourceFormatString(t.format);
+    r.usage = detail::TextureUsageString(t.creationFlags);
+    rows.append(r);
+
+    out.totalTextureBytes += t.byteSize;
+    out.textures.count++;
+    formatCounts[r.format] += 1u;
+    if(t.mips > 1)
+      out.textures.mipLevelsAvailable++;
+
+    if(t.mips >= IdealMipCount(t.width, t.height, t.depth))
+      out.textures.fullMipChain++;
+    else
+      out.textures.missingMipChain++;
+
+    const QString dim = QString::fromUtf8("%1x%2x%3").arg(t.width).arg(t.height).arg(t.depth);
+    if(!dimensions.contains(dim))
+      dimensions.append(dim);
+  }
+
+  for(const BufferDescription &b : buffers)
+  {
+    ResourceMemoryRow r;
+    r.resourceId = b.resourceId;
+    r.name = FromRdcStr(ctx->GetResourceName(b.resourceId));
+    r.type = QStringLiteral("Buffer");
+    r.byteSize = b.length;
+    r.usage = detail::BufferUsageString(b.creationFlags);
+    rows.append(r);
+
+    out.totalBufferBytes += b.length;
+    out.bufferCount++;
+  }
+
+  for(const ResourceDescription &res : resources)
+  {
+    if(res.type == ResourceType::Shader)
+      out.shaderCount++;
+  }
+  out.totalResources = (uint32_t)resources.size();
+
+  std::sort(rows.begin(), rows.end(), [](const ResourceMemoryRow &a, const ResourceMemoryRow &b) {
+    return a.byteSize > b.byteSize;
+  });
+  out.largestResources = rows;
+  if(cap > 0 && out.largestResources.size() > cap)
+    out.largestResources.resize(cap);
+
+  QVector<QPair<QString, uint32_t>> byFormat;
+  for(auto it = formatCounts.constBegin(); it != formatCounts.constEnd(); ++it)
+    byFormat.append(qMakePair(it.key(), it.value()));
+  std::sort(byFormat.begin(), byFormat.end(),
+            [](const QPair<QString, uint32_t> &a, const QPair<QString, uint32_t> &b) {
+              return a.second > b.second;
+            });
+  out.textures.byFormat = byFormat;
+  out.textures.dimensions = dimensions;
+
+  out.totalBytes = out.totalTextureBytes + out.totalBufferBytes;
+  out.totalMiB = double(out.totalBytes) / (1024.0 * 1024.0);
+
+  // Heuristic remarks. These are explicitly not facts and are labelled as such.
+  if(out.textures.missingMipChain > 0)
+    out.notes.append(QString::fromUtf8("%1 texture(s) have an incomplete mip chain, which can "
+                                       "increase sampling bandwidth and memory residency")
+                         .arg(out.textures.missingMipChain));
+  if(out.totalBytes > 0 && !out.largestResources.isEmpty())
+  {
+    const double share =
+        double(out.largestResources.first().byteSize) * 100.0 / double(out.totalBytes);
+    out.notes.append(
+        QString::fromUtf8("The largest single resource accounts for %1% of tracked memory")
+            .arg(share, 0, 'f', 1));
+  }
+  out.notes.append(QStringLiteral(
+      "Byte sizes are creation-time estimates; resident memory may differ due to aliasing, "
+      "sub-allocation and driver overhead."));
+
+  out.confidence = Confidence::Confirmed;
   return out;
 }
 
@@ -2554,8 +2969,9 @@ ToolResult QueryAdapter::PipelineSnapshotAt(uint32_t eventId, CallContext &call,
   if(m_Ctx->IsCaptureLoading())
     return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
 
+  const CaptureSnapshot snap = Snapshot();
   return DispatchBlock("renderdoc_getPipelineStateAtEvent", call,
-                       [eventId, fields](IReplayController &replay) -> ToolResult {
+                       [eventId, fields, snap](IReplayController &replay) -> ToolResult {
     QSet<quint32> eventIds;
     CollectEventIdsRecursive(replay.GetRootActions(), eventIds);
     if(!eventIds.contains(eventId))
@@ -2573,7 +2989,7 @@ ToolResult QueryAdapter::PipelineSnapshotAt(uint32_t eventId, CallContext &call,
 
     QJsonObject out = FilterFields(state, fields);
     out[QStringLiteral("eventId")] = double(eventId);
-    out[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    out[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(out);
   });
 }
@@ -2586,8 +3002,9 @@ ToolResult QueryAdapter::DiffPipelineState(uint32_t eventIdA, uint32_t eventIdB,
   if(m_Ctx->IsCaptureLoading())
     return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
 
+  const CaptureSnapshot snap = Snapshot();
   return DispatchBlock("renderdoc_diffPipelineState", call,
-                       [eventIdA, eventIdB, fields](IReplayController &replay) -> ToolResult {
+                       [eventIdA, eventIdB, fields, snap](IReplayController &replay) -> ToolResult {
     QSet<quint32> eventIds;
     CollectEventIdsRecursive(replay.GetRootActions(), eventIds);
 
@@ -2702,7 +3119,7 @@ ToolResult QueryAdapter::DiffPipelineState(uint32_t eventIdA, uint32_t eventIdB,
       out[QStringLiteral("snapshots")] = snaps;
     }
 
-    out[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    out[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(out);
   });
 }
@@ -2714,112 +3131,9 @@ ToolResult QueryAdapter::ResourceMemoryAudit(int limit, CallContext &call,
 
   const int cap = limit > 0 ? limit : 64;
 
-  const ResourceMemoryAudit audit =
-      ReadOnUIThread<ResourceMemoryAudit>([this, cap]() -> ResourceMemoryAudit {
-    ResourceMemoryAudit out;
-
-    const rdcarray<TextureDescription> textures = m_Ctx->GetTextures();
-    const rdcarray<BufferDescription> buffers = m_Ctx->GetBuffers();
-    const rdcarray<ResourceDescription> resources = m_Ctx->GetResources();
-
-    QHash<quint64, uint32_t> formatCounts;
-    QStringList dimensions;
-    QVector<ResourceMemoryRow> rows;
-    uint64_t total = 0;
-
-    for(const TextureDescription &t : textures)
-    {
-      ResourceMemoryRow r;
-      r.resourceId = t.resourceId;
-      r.name = FromRdcStr(m_Ctx->GetResourceName(t.resourceId));
-      r.type = QStringLiteral("Texture");
-      r.textureType = detail::TextureTypeName(t.type);
-      r.byteSize = t.byteSize;
-      r.width = t.width;
-      r.height = t.height;
-      r.depth = t.depth;
-      r.mips = t.mips;
-      r.arraySize = t.arraysize;
-      r.format = detail::ResourceFormatString(t.format);
-      r.usage = detail::TextureUsageString(t.creationFlags);
-      rows.append(r);
-
-      out.totalTextureBytes += t.byteSize;
-      out.textures.count++;
-      formatCounts[r.format] += 1u;
-      if(t.mips > 1)
-        out.textures.mipLevelsAvailable++;
-
-      if(t.mips >= IdealMipCount(t.width, t.height, t.depth))
-        out.textures.fullMipChain++;
-      else
-        out.textures.missingMipChain++;
-
-      const QString dim = QString::fromUtf8("%1x%2x%3").arg(t.width).arg(t.height).arg(t.depth);
-      if(!dimensions.contains(dim))
-        dimensions.append(dim);
-    }
-
-    for(const BufferDescription &b : buffers)
-    {
-      ResourceMemoryRow r;
-      r.resourceId = b.resourceId;
-      r.name = FromRdcStr(m_Ctx->GetResourceName(b.resourceId));
-      r.type = QStringLiteral("Buffer");
-      r.byteSize = b.length;
-      r.usage = detail::BufferUsageString(b.creationFlags);
-      rows.append(r);
-
-      out.totalBufferBytes += b.length;
-      out.bufferCount++;
-    }
-
-    for(const ResourceDescription &res : resources)
-    {
-      if(res.type == ResourceType::Shader)
-        out.shaderCount++;
-    }
-    out.totalResources = (uint32_t)resources.size();
-
-    std::sort(rows.begin(), rows.end(), [](const ResourceMemoryRow &a, const ResourceMemoryRow &b) {
-      return a.byteSize > b.byteSize;
-    });
-    out.largestResources = rows;
-    if(cap > 0 && out.largestResources.size() > cap)
-      out.largestResources.resize(cap);
-
-    QVector<QPair<QString, uint32_t>> byFormat;
-    for(auto it = formatCounts.constBegin(); it != formatCounts.constEnd(); ++it)
-      byFormat.append(qMakePair(it.key(), it.value()));
-    std::sort(byFormat.begin(), byFormat.end(),
-              [](const QPair<QString, uint32_t> &a, const QPair<QString, uint32_t> &b) {
-                return a.second > b.second;
-              });
-    out.textures.byFormat = byFormat;
-    out.textures.dimensions = dimensions;
-
-    out.totalBytes = out.totalTextureBytes + out.totalBufferBytes;
-    out.totalMiB = double(out.totalBytes) / (1024.0 * 1024.0);
-
-    // Heuristic remarks. These are explicitly not facts and are labelled as such.
-    if(out.textures.missingMipChain > 0)
-      out.notes.append(QString::fromUtf8("%1 texture(s) have an incomplete mip chain, which can "
-                                         "increase sampling bandwidth and memory residency")
-                           .arg(out.textures.missingMipChain));
-    if(out.totalBytes > 0 && !out.largestResources.isEmpty())
-    {
-      const double share =
-          double(out.largestResources.first().byteSize) * 100.0 / double(out.totalBytes);
-      out.notes.append(
-          QString::fromUtf8("The largest single resource accounts for %1% of tracked memory")
-              .arg(share, 0, 'f', 1));
-    }
-    out.notes.append(QStringLiteral(
-        "Byte sizes are creation-time estimates; resident memory may differ due to aliasing, "
-        "sub-allocation and driver overhead."));
-
-    out.confidence = Confidence::Confirmed;
-    return out;
+  const MCP::ResourceMemoryAudit audit =
+      ReadOnUIThread<MCP::ResourceMemoryAudit>([this, cap]() -> MCP::ResourceMemoryAudit {
+    return SnapshotMemoryAudit(m_Ctx, cap);
   });
 
   QJsonObject j = FilterFields(ResourceMemoryAuditToJson(audit), fields);
@@ -2832,13 +3146,14 @@ ToolResult QueryAdapter::ResourceLifetime(int limit, CallContext &call,
 {
   const int cap = limit > 0 ? limit : 100;
 
+  const CaptureSnapshot snap = Snapshot();
   const QVector<ResourceLite> resources =
       ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
     return SnapshotResources(m_Ctx);
   });
 
   return DispatchBlock("renderdoc_resourceLifetime", call,
-                       [resources, cap, fields](IReplayController &replay) -> ToolResult {
+                       [resources, cap, fields, snap](IReplayController &replay) -> ToolResult {
     const SDFile &sdfile = replay.GetStructuredFile();
 
     rdcarray<const ActionDescription *> leaves;
@@ -2915,7 +3230,7 @@ ToolResult QueryAdapter::ResourceLifetime(int limit, CallContext &call,
     result.rows = rows;
 
     QJsonObject j = FilterFields(ResourceLifetimeToJson(result), fields);
-    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(j);
   });
 }
@@ -2925,13 +3240,14 @@ ToolResult QueryAdapter::FindUnusedResources(int limit, CallContext &call,
 {
   const int cap = limit > 0 ? limit : 100;
 
+  const CaptureSnapshot snap = Snapshot();
   const QVector<ResourceLite> resources =
       ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
     return SnapshotResources(m_Ctx);
   });
 
   return DispatchBlock("renderdoc_findUnusedResources", call,
-                       [resources, cap, fields](IReplayController &replay) -> ToolResult {
+                       [resources, cap, fields, snap](IReplayController &replay) -> ToolResult {
     const SDFile &sdfile = replay.GetStructuredFile();
 
     rdcarray<const ActionDescription *> leaves;
@@ -2978,7 +3294,7 @@ ToolResult QueryAdapter::FindUnusedResources(int limit, CallContext &call,
         "access, or outside the captured frame are reported as unused incorrectly.");
 
     QJsonObject j = FilterFields(UnusedResourceResultToJson(result), fields);
-    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(j);
   });
 }
@@ -2988,13 +3304,14 @@ ToolResult QueryAdapter::FindResourceLeaks(int limit, CallContext &call,
 {
   const int cap = limit > 0 ? limit : 100;
 
+  const CaptureSnapshot snap = Snapshot();
   const QVector<ResourceLite> resources =
       ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
     return SnapshotResources(m_Ctx);
   });
 
   return DispatchBlock("renderdoc_findResourceLeaks", call,
-                       [resources, cap, fields](IReplayController &replay) -> ToolResult {
+                       [resources, cap, fields, snap](IReplayController &replay) -> ToolResult {
     const SDFile &sdfile = replay.GetStructuredFile();
 
     rdcarray<const ActionDescription *> leaves;
@@ -3071,7 +3388,486 @@ ToolResult QueryAdapter::FindResourceLeaks(int limit, CallContext &call,
         "confident verdict requires comparing across frames or captures.");
 
     QJsonObject j = FilterFields(LeakResultToJson(result), fields);
-    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
+    return ToolResult::Success(j);
+  });
+}
+
+//
+// ---- P1-6 structured performance report ----------------------------------
+//
+// Shared report builder used by both the report and the export tool. It runs on
+// the replay thread (inside a DispatchBlock lambda) and only reads data that was
+// captured by value on the UI thread, so it never touches ICaptureContext.
+static PerformanceReport BuildPerformanceReport(IReplayController &replay,
+                                                const CaptureSnapshot &snap,
+                                                const QVector<ResourceLite> &resources, int cap,
+                                                bool includePipeline, bool includeMesh)
+{
+  const SDFile &sdfile = replay.GetStructuredFile();
+
+  // Timings first: without them nothing about the ranking is a fact.
+  const QHash<quint32, double> timings = FetchEventTimings(replay);
+
+  QHash<quint64, QString> resourceNames;
+  for(const ResourceLite &r : resources)
+    resourceNames.insert(r.id, r.name);
+
+  // Pass attribution: every leaf event maps to the nearest enclosing marker (or
+  // the implicit "Frame" root). Containers name the pass their children belong
+  // to; leaves inherit it. This mirrors the plugin's aggregate() walk.
+  QHash<quint32, QPair<QString, QString> > passForEvent;
+
+  std::function<void(const ActionDescription &, const QString &, const QString &)> attribute =
+      [&](const ActionDescription &a, const QString &passId, const QString &passName) {
+        if(a.children.empty())
+        {
+          const QString id = passId.isEmpty() ? BuildPassId(QStringLiteral("Frame"), a.eventId,
+                                                            a.eventId)
+                                              : passId;
+          const QString name = passName.isEmpty() ? QStringLiteral("Frame") : passName;
+          passForEvent.insert(a.eventId, qMakePair(id, name));
+          return;
+        }
+
+        const QString name = FromRdcStr(a.GetName(sdfile));
+        const QString id = BuildPassId(name, PassFirstLeaf(a), PassLastLeaf(a));
+
+        for(const ActionDescription &c : a.children)
+          attribute(c, id, name);
+      };
+
+  for(const ActionDescription &root : replay.GetRootActions())
+    attribute(root, QString(), QString());
+
+  struct PassAgg
+  {
+    uint32_t first = 0;
+    uint32_t last = 0;
+    uint32_t count = 0;
+    uint32_t timed = 0;
+    double total = 0.0;
+  };
+
+  QHash<QString, PassAgg> passAgg;
+  QHash<QString, QString> passNames;
+
+  struct Row
+  {
+    const ActionDescription *action = NULL;
+    uint32_t eventId = 0;
+    QString name;
+    QString passId;
+    QString passName;
+    double us = 0.0;
+  };
+
+  rdcarray<const ActionDescription *> leaves;
+  CollectLeavesInList(replay.GetRootActions(), leaves);
+
+  QVector<Row> rows;
+  double totalUs = 0.0;
+
+  for(const ActionDescription *leaf : leaves)
+  {
+    const QPair<QString, QString> pass = passForEvent.value(
+        leaf->eventId, qMakePair(QStringLiteral("Frame"), QStringLiteral("Frame")));
+
+    PassAgg &agg = passAgg[pass.first];
+    passNames.insert(pass.first, pass.second);
+    if(agg.count == 0)
+      agg.first = leaf->eventId;
+    agg.last = leaf->eventId;
+    agg.count++;
+
+    const double us = timings.value(leaf->eventId, 0.0);
+    if(us <= 0.0)
+      continue;
+
+    agg.total += us;
+    agg.timed++;
+    totalUs += us;
+
+    Row row;
+    row.action = leaf;
+    row.eventId = leaf->eventId;
+    row.name = FromRdcStr(leaf->GetName(sdfile));
+    row.passId = pass.first;
+    row.passName = pass.second;
+    row.us = us;
+    rows.push_back(row);
+  }
+
+  PerformanceReport report;
+  report.available = true;
+  report.timingAvailable = !timings.isEmpty();
+  report.capturePath = snap.filename;
+  report.api = snap.api;
+  report.frameNumber = snap.frameNumber;
+  report.totalTimedEvents = (uint32_t)rows.size();
+  report.totalDurationUs = totalUs;
+  report.hotEventLimit = (uint32_t)cap;
+
+  // Passes, hottest first. A pass is Confirmed only when every contained leaf had
+  // a measurement; otherwise its total is a partial sum and therefore Inferred.
+  QVector<PerformanceHotPass> passes;
+  for(auto it = passAgg.constBegin(); it != passAgg.constEnd(); ++it)
+  {
+    PerformanceHotPass p;
+    p.passId = it.key();
+    p.name = passNames.value(it.key(), it.key());
+    p.firstEventId = it.value().first;
+    p.lastEventId = it.value().last;
+    p.eventCount = it.value().count;
+    p.durationUs = it.value().total;
+    p.confidence =
+        (it.value().timed == it.value().count) ? Confidence::Confirmed : Confidence::Inferred;
+    passes.push_back(p);
+  }
+
+  std::sort(passes.begin(), passes.end(),
+            [](const PerformanceHotPass &a, const PerformanceHotPass &b) {
+              return a.durationUs > b.durationUs;
+            });
+  if(cap > 0 && passes.size() > cap)
+    passes.resize(cap);
+  report.hottestPasses = passes;
+
+  // Hot events, hottest first, each with its evidence anchors.
+  std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.us > b.us; });
+
+  const int eventCount = (cap > 0 && rows.size() > cap) ? cap : rows.size();
+  for(int i = 0; i < eventCount; i++)
+  {
+    const Row &row = rows[i];
+
+    PerformanceHotEvent e;
+    e.eventId = row.eventId;
+    e.name = row.name;
+    e.passId = row.passId;
+    e.passName = row.passName;
+    e.durationUs = row.us;
+    e.share = totalUs > 0.0 ? (row.us / totalUs) : 0.0;
+    e.confidence = Confidence::Confirmed;
+    e.evidence.push_back(TimingEvidence(row.eventId, row.us, row.name));
+
+    if(includePipeline && row.action != NULL)
+    {
+      LeafFacts facts;
+      if(ReadLeafFacts(replay, *row.action, sdfile, facts))
+      {
+        e.pipelineAvailable = true;
+
+        const int shaderCount = (int)facts.shaders.size();
+        const int shaderCap = shaderCount > 8 ? 8 : shaderCount;
+        for(int s = 0; s < shaderCap; s++)
+          e.evidence.push_back(
+              ShaderEvidence(facts.shaders[s].id, facts.shaders[s].stage, facts.shaders[s].name));
+
+        int resourceCount = 0;
+        for(quint64 idv : facts.resourceIds)
+        {
+          if(idv == 0)
+            continue;
+          if(resourceCount >= 12)
+            break;
+          e.evidence.push_back(ResourceEvidence(ResourceIdFromValue(idv), resourceNames.value(idv)));
+          resourceCount++;
+        }
+      }
+    }
+
+    if(includeMesh && row.action != NULL && row.action->numIndices > 0)
+      e.meshAvailable = true;
+
+    report.hottestEvents.push_back(e);
+  }
+
+  // Provenance-split conclusions: without timings nothing about the ranking is a
+  // fact, so everything moves to toVerify.
+  if(report.timingAvailable)
+  {
+    report.confidence = Confidence::Confirmed;
+    report.conclusions.confirmed.push_back(QString::fromUtf8(
+        "Hotspot ranking is based on captured GPU timing values (EventGPUDuration)."));
+    report.conclusions.toVerify.push_back(QString::fromUtf8(
+        "Inspect pipeline, shader and resource bindings for the top event ids."));
+
+    bool anyPartial = false;
+    for(const PerformanceHotPass &p : report.hottestPasses)
+    {
+      if(p.confidence != Confidence::Confirmed)
+      {
+        anyPartial = true;
+        break;
+      }
+    }
+    if(anyPartial)
+      report.conclusions.inferred.push_back(QString::fromUtf8(
+          "Some passes contain leaf events without GPU timings, so their totals are partial."));
+  }
+  else
+  {
+    report.confidence = Confidence::ToVerify;
+    report.limitation = QString::fromUtf8(
+        "This capture's API does not expose the EventGPUDuration counter, so no hotspot ranking "
+        "could be produced. Collect GPU timings before drawing performance conclusions.");
+    report.conclusions.toVerify.push_back(
+        QString::fromUtf8("Collect GPU timings before making performance conclusions."));
+  }
+
+  report.evidence.push_back(CaptureEvidence(report.capturePath));
+  if(report.timingAvailable)
+  {
+    EvidenceRef timingAnchor;
+    timingAnchor.kind = QStringLiteral("timing");
+    timingAnchor.durationUs = totalUs;
+    timingAnchor.label =
+        QStringLiteral("EventGPUDuration over %1 events").arg(report.totalTimedEvents);
+    timingAnchor.confidence = Confidence::Confirmed;
+    report.evidence.push_back(timingAnchor);
+  }
+
+  return report;
+}
+
+ToolResult QueryAdapter::GeneratePerformanceReport(int limit, bool includePipeline, bool includeMesh,
+                                                  CallContext &call, const QStringList &fields)
+{
+  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+  if(m_Ctx->IsCaptureLoading())
+    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+
+  const int cap = limit > 200 ? 200 : (limit > 0 ? limit : 20);
+
+  const CaptureSnapshot snap = Snapshot();
+  const QVector<ResourceLite> resources =
+      ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
+    return SnapshotResources(m_Ctx);
+  });
+
+  return DispatchBlock(
+      "renderdoc_generatePerformanceReport", call,
+      [cap, includePipeline, includeMesh, snap, resources, fields](IReplayController &replay)
+          -> ToolResult {
+        const PerformanceReport report =
+            BuildPerformanceReport(replay, snap, resources, cap, includePipeline, includeMesh);
+
+        QJsonObject j = FilterFields(PerformanceReportToJson(report), fields);
+        j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
+        return ToolResult::Success(j);
+      });
+}
+
+ToolResult QueryAdapter::ExportPerformanceReport(const QString &format, int limit, CallContext &call,
+                                                 const QStringList &fields)
+{
+  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+  if(m_Ctx->IsCaptureLoading())
+    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+
+  const QString fmt =
+      format.compare(QStringLiteral("json"), Qt::CaseInsensitive) == 0 ? QStringLiteral("json")
+                                                                      : QStringLiteral("markdown");
+  const int cap = limit > 200 ? 200 : (limit > 0 ? limit : 20);
+
+  const CaptureSnapshot snap = Snapshot();
+  const QVector<ResourceLite> resources =
+      ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
+    return SnapshotResources(m_Ctx);
+  });
+
+  return DispatchBlock("renderdoc_exportPerformanceReport", call,
+                       [fmt, cap, snap, resources, fields](IReplayController &replay) -> ToolResult {
+    const PerformanceReport report =
+        BuildPerformanceReport(replay, snap, resources, cap, true, true);
+
+    const QJsonObject reportJson = PerformanceReportToJson(report);
+
+    QJsonObject out;
+    out[QStringLiteral("format")] = fmt;
+    out[QStringLiteral("report")] = reportJson;
+    out[QStringLiteral("content")] =
+        (fmt == QStringLiteral("json"))
+            ? QString::fromUtf8(QJsonDocument(reportJson).toJson(QJsonDocument::Indented))
+            : PerformanceReportToMarkdown(report);
+
+    QJsonObject j = FilterFields(out, fields);
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
+    return ToolResult::Success(j);
+  });
+}
+
+// P1-9: compose the whole-investigation report. The bookmark half (P1-8) and the
+// resource-memory half (P1-4) are plain UI-thread snapshot reads, the performance
+// half (P1-6) is built on the replay thread, and everything is assembled into one
+// InvestigationReport. Like ExportPerformanceReport this never touches the disk:
+// the rendered text comes back in-band as `content` so the dialog owns the file
+// side effect and a headless client can just read the JSON.
+ToolResult QueryAdapter::BuildInvestigationReport(const QString &format, int limit,
+                                                  bool includeResources, CallContext &call,
+                                                  const QStringList &fields)
+{
+  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+  if(m_Ctx->IsCaptureLoading())
+    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+
+  const QString fmt =
+      format.compare(QStringLiteral("json"), Qt::CaseInsensitive) == 0 ? QStringLiteral("json")
+                                                                      : QStringLiteral("markdown");
+  const int cap = limit > 200 ? 200 : (limit > 0 ? limit : 20);
+  const QString generatedAt =
+      QDateTime::currentDateTimeUtc().toString(Qt::ISODate) + QStringLiteral("Z");
+
+  const CaptureSnapshot snap = Snapshot();
+
+  // P1-8 bookmarks. This degrades gracefully (available == false with a reason)
+  // when the capture is not open locally, it never fails the whole report.
+  const BookmarkSidecar sidecar = ReadBookmarkSidecar();
+
+  // P1-4 resource audit. Opt-out because the largest-resource list can be large;
+  // when skipped the report records why rather than implying zero resources.
+  MCP::ResourceMemoryAudit audit;
+  if(includeResources)
+  {
+    audit = ReadOnUIThread<MCP::ResourceMemoryAudit>([this, cap]() -> MCP::ResourceMemoryAudit {
+      return SnapshotMemoryAudit(m_Ctx, cap);
+    });
+  }
+
+  const QVector<ResourceLite> resources =
+      ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
+    return SnapshotResources(m_Ctx);
+  });
+
+  return DispatchBlock(
+      "renderdoc_buildInvestigationReport", call,
+      [fmt, cap, generatedAt, snap, sidecar, audit, includeResources, resources, fields](
+          IReplayController &replay) -> ToolResult {
+        InvestigationReport report;
+        report.available = true;
+        report.generatedAt = generatedAt;
+        report.capturePath = snap.filename;
+        report.api = snap.api;
+        report.frameNumber = snap.frameNumber;
+        report.currentEvent = snap.currentEvent;
+
+        report.bookmarks = sidecar.items;
+        report.bookmarksAvailable = sidecar.available;
+        report.bookmarkLimitation = sidecar.limitation;
+
+        // P1-6 performance half. Pipeline evidence is attached so every hotspot can
+        // be followed up; mesh availability is only advertised.
+        report.performance = BuildPerformanceReport(replay, snap, resources, cap, true, true);
+
+        // P1-4 resource half.
+        report.resources = audit;
+        if(!includeResources)
+          report.limitations.append(QStringLiteral(
+              "The resource-memory audit was not requested, so resource sizes are omitted."));
+
+        // Report-level anchors: the capture plus one timing anchor per hotspot. The
+        // per-event shader/resource evidence already travels on
+        // performance.hottestEvents[].evidence, so it is not duplicated here.
+        report.evidence.push_back(CaptureEvidence(report.capturePath));
+        for(const PerformanceHotEvent &e : report.performance.hottestEvents)
+        {
+          if(!e.evidence.isEmpty())
+            report.evidence.push_back(e.evidence.first());
+        }
+
+        report.confidence =
+            report.performance.timingAvailable ? Confidence::Confirmed : Confidence::ToVerify;
+
+        const QJsonObject reportJson = InvestigationReportToJson(report);
+
+        QJsonObject out;
+        out[QStringLiteral("format")] = fmt;
+        out[QStringLiteral("report")] = reportJson;
+        out[QStringLiteral("content")] =
+            (fmt == QStringLiteral("json"))
+                ? QString::fromUtf8(QJsonDocument(reportJson).toJson(QJsonDocument::Indented))
+                : InvestigationReportToMarkdown(report);
+
+        QJsonObject j = FilterFields(out, fields);
+        j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
+        return ToolResult::Success(j);
+      });
+}
+
+// P1-7: apply the combined advanced filter set over the action tree and package
+// the survivors as an AI context block. Timings are fetched so rows can carry
+// GPU duration when the capture supports EventGPUDuration.
+static EventBrowserContext BuildEventBrowserContextImpl(IReplayController &replay,
+                                                    const CaptureSnapshot &snap,
+                                                    const EventBrowserFilterOptions &options,
+                                                    int cap)
+{
+  EventBrowserContext ctx;
+  ctx.capturePath = snap.filename;
+  ctx.api = snap.api;
+  ctx.frameNumber = snap.frameNumber;
+  ctx.filters = options;
+
+  const QHash<quint32, double> timings = FetchEventTimings(replay);
+
+  const SDFile &sdfile = replay.GetStructuredFile();
+
+  QVector<EventBrowserContextRow> rows;
+  EventBrowserFilterStats stats;
+  FilterEventBrowserActions(replay.GetRootActions(), sdfile, options, timings, rows, stats);
+
+  ctx.totalEvents = stats.totalEvents;
+  ctx.matchedEvents = stats.matchedEvents;
+
+  const int limit = cap > 0 ? cap : 500;
+  if(rows.size() > limit)
+  {
+    rows.resize(limit);
+    ctx.truncated = true;
+  }
+  ctx.rows = rows;
+
+  if(timings.isEmpty())
+  {
+    // Without GPU timings the ordering cannot be a fact, so we say so rather than
+    // pretending the surviving list is a ranking.
+    ctx.confidence = Confidence::ToVerify;
+    ctx.limitation = QStringLiteral(
+        "EventGPUDuration is unavailable in this capture, so rows carry no duration and "
+        "sortByDuration has no effect.");
+  }
+  else
+  {
+    ctx.confidence = Confidence::Confirmed;
+  }
+
+  ctx.aiContext = EventBrowserContextToText(ctx);
+  return ctx;
+}
+
+ToolResult QueryAdapter::BuildEventBrowserContext(const EventBrowserFilterOptions &options, int cap,
+                                                  CallContext &call, const QStringList &fields)
+{
+  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+  if(m_Ctx->IsCaptureLoading())
+    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+
+  const int clampedCap = cap > 2000 ? 2000 : (cap > 0 ? cap : 500);
+
+  const CaptureSnapshot snap = Snapshot();
+
+  return DispatchBlock("renderdoc_buildEventBrowserContext", call,
+                       [options, clampedCap, snap, fields](IReplayController &replay) -> ToolResult {
+    const EventBrowserContext ctx =
+        BuildEventBrowserContextImpl(replay, snap, options, clampedCap);
+
+    QJsonObject j = FilterFields(EventBrowserContextToJson(ctx), fields);
+    j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(j);
   });
 }

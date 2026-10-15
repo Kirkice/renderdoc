@@ -187,6 +187,7 @@ private slots:
   void on_action_Manage_Remote_Servers_triggered();
   void on_action_Settings_triggered();
   void on_action_MCP_Server_triggered();
+  void on_action_Investigation_Report_triggered();
   void on_action_View_Documentation_triggered();
   void on_action_Source_on_GitHub_triggered();
   void on_action_Build_Release_Downloads_triggered();

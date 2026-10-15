@@ -23,8 +23,12 @@
  ******************************************************************************/
 
 #include "MCPTools.h"
+#include "MCPDiagnostics.h"
+#include "MCPExternalTools.h"
+#include "MCPSourceMapping.h"
 
 #include <QByteArray>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QStringList>
@@ -101,6 +105,17 @@ QStringList ArgFields(const QJsonObject &args)
       out.push_back(e.toString());
   }
   return out;
+}
+
+// Boolean arguments must be explicit: a missing key or a non-boolean value
+// (e.g. the string "true") falls back to `dflt` rather than being coerced, so
+// the JSON Schema validation and the handler agree on what was requested.
+bool ArgBool(const QJsonObject &args, const char *key, bool dflt)
+{
+  const QJsonValue v = args.value(QString::fromUtf8(key));
+  if(v.isBool())
+    return v.toBool();
+  return dflt;
 }
 
 // Resource ids are opaque 8-byte values (resourceid.h keeps the payload private),
@@ -399,17 +414,6 @@ double DecodeComponent(const byte *p, const ResourceFormat &f)
       }
       break;
     }
-    case CompType::Double:
-    {
-      if(w == 8)
-      {
-        double v = 0.0;
-        memcpy(&v, p, 8);
-        return v;
-      }
-      break;
-    }
-    case CompType::Bool: return p[0] != 0 ? 1.0 : 0.0;
     default: break;
   }
 
@@ -534,7 +538,7 @@ QJsonObject VertexInputToJson(const VertexInputAttribute &a)
 // Serialises the state that is available through the API-agnostic PipeState. The
 // API-specific structures (D3D11Pipe::State etc.) are intentionally not touched
 // here: PipeState already resolves them, so one code path covers every API.
-QJsonObject PipelineStateToJson(IReplayController &replay)
+QJsonObject PipelineStateToJsonImpl(IReplayController &replay)
 {
   QJsonObject out;
   const PipeState &pipe = replay.GetPipelineState();
@@ -819,6 +823,11 @@ const ActionDescription *FindActionByEID(const rdcarray<ActionDescription> &acti
 
 }    // namespace
 
+QJsonObject PipelineStateToJson(IReplayController &replay)
+{
+  return PipelineStateToJsonImpl(replay);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Registration
 ////////////////////////////////////////////////////////////////////////////////
@@ -831,11 +840,6 @@ static void AddSchemaProperty(QJsonObject &props, const char *name, const char *
   if(description != NULL)
     p[QStringLiteral("description")] = QString::fromUtf8(description);
   props[QString::fromUtf8(name)] = p;
-}
-
-static void AddSchemaProperty(QJsonObject &props, const char *name, const QJsonObject &schema)
-{
-  props[QString::fromUtf8(name)] = schema;
 }
 
 static QJsonObject MakeSchema(const QJsonObject &properties)
@@ -1265,6 +1269,168 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
         });
   }
 
+  // ---------------------------------------------------------------------------
+  // Structured performance report generation and export (P1-6). Every row is
+  // anchored to timing/shader/resource evidence; the report never asserts a
+  // hot-spot conclusion without the EventGPUDuration measurement behind it.
+  // ---------------------------------------------------------------------------
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "limit", "number",
+                      "Maximum number of hottest passes and hottest events to return. Default 20, "
+                      "hard maximum 200.");
+    AddSchemaProperty(props, "includePipeline", "boolean",
+                      "Attach shader and resource evidence read from the pipeline state of each "
+                      "hottest event. Default true.");
+    AddSchemaProperty(props, "includeMesh", "boolean",
+                      "Advertise the mesh-data follow-up for hottest events that have an index "
+                      "buffer. Default true.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_generatePerformanceReport"),
+                       QStringLiteral("Generate Performance Report"),
+                       QStringLiteral("Aggregate captured GPU time per pass and rank the hottest "
+                                      "leaf events. Each hot pass and hot event is anchored to "
+                                      "timing, shader and resource evidence so the conclusion can be "
+                                      "traced back to a concrete event id. When EventGPUDuration is "
+                                      "unavailable the ranking is returned with confidence "
+                                      "\"toVerify\" and a stated limitation rather than being "
+                                      "presented as fact. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.GeneratePerformanceReport((int)ArgU32(args, "limit", 20),
+                                                   ArgBool(args, "includePipeline", true),
+                                                   ArgBool(args, "includeMesh", true), call,
+                                                   ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "format", "string",
+                      "Rendering format: \"markdown\" (default) or \"json\".");
+    AddSchemaProperty(props, "limit", "number",
+                      "Maximum number of hottest passes and hottest events to include. Default 20, "
+                      "hard maximum 200.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_exportPerformanceReport"),
+                       QStringLiteral("Export Performance Report"),
+                       QStringLiteral("Render the structured performance report as a JSON or "
+                                      "Markdown document. The rendered text is returned in-band as "
+                                      "\"content\" next to the structured report; the tool performs "
+                                      "no file write, so the caller decides whether and where to "
+                                      "persist it. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.ExportPerformanceReport(ArgStr(args, "format", QStringLiteral("markdown")),
+                                                 (int)ArgU32(args, "limit", 20), call,
+                                                 ArgFields(args));
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Whole-investigation report (P1-9). One artefact that composes the P1-8
+  // bookmarks, the P1-6 performance report and the P1-4 resource-memory audit
+  // into a single JSON or Markdown document. Read-only: it never writes to disk,
+  // so the rendered text comes back in-band and the caller owns persistence.
+  // ---------------------------------------------------------------------------
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "format", "string",
+                      "Rendering format: \"markdown\" (default) or \"json\".");
+    AddSchemaProperty(props, "limit", "number",
+                      "Maximum number of hotspot and audit rows to include. Default 20, hard "
+                      "maximum 200.");
+    AddSchemaProperty(props, "includeResources", "boolean",
+                      "Attach the resource-memory audit (largest resources, format breakdown). "
+                      "Default true; set false for a compact report.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_buildInvestigationReport"),
+                       QStringLiteral("Build Investigation Report"),
+                       QStringLiteral("Compose ONE investigation report from the current capture: "
+                                      "capture metadata plus the investigation bookmarks, the "
+                                      "performance hotspot report and the resource-memory audit. "
+                                      "Each section that cannot be a fact (unavailable bookmarks, "
+                                      "missing GPU timings, estimate-only resource sizes) is "
+                                      "reported with a stated limitation instead of an invented "
+                                      "value. Rendered as JSON or Markdown and returned in-band as "
+                                      "\"content\"; the tool performs no file write. Requires "
+                                      "replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.BuildInvestigationReport(
+              ArgStr(args, "format", QStringLiteral("markdown")), (int)ArgU32(args, "limit", 20),
+              ArgBool(args, "includeResources", true), call, ArgFields(args));
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Event Browser advanced filtering and AI context (P1-7). Applies the plugin's
+  // combined filter set over the action tree and returns a flattened, capped view
+  // plus a prose context block. The native event tree and its expression filter
+  // box are left untouched - this only augments them with a machine-readable,
+  // programmatic query a client can drive.
+  // ---------------------------------------------------------------------------
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "markerFilter", "string",
+                      "Case-insensitive substring matched against action names. Once a marker "
+                      "matches, all of its descendants qualify.");
+    AddSchemaProperty(props, "excludeMarkers", "boolean", "Drop marker groups. Default false.");
+    AddSchemaProperty(props, "onlyDrawCalls", "boolean",
+                      "Keep only real draw/dispatch/clear effects. Default false.");
+    AddSchemaProperty(props, "excludeDebugMarkers", "boolean",
+                      "Drop debug/annotation marker groups. Default false.");
+    AddSchemaProperty(props, "excludeEmptyOperations", "boolean",
+                      "Drop draws/dispatches with no indices and no instances. Default false.");
+    AddSchemaProperty(props, "sortByDuration", "boolean",
+                      "Order matching events by GPU duration, hottest first. Has no effect when "
+                      "EventGPUDuration is unavailable. Default false.");
+    AddSchemaProperty(props, "eventIdMin", "number", "Lower bound on event id, inclusive. 0 = none.");
+    AddSchemaProperty(props, "eventIdMax", "number", "Upper bound on event id, inclusive. 0 = none.");
+    AddSchemaProperty(props, "limit", "number",
+                      "Maximum number of events to return. Default 500, hard maximum 2000.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_buildEventBrowserContext"),
+                       QStringLiteral("Build Event Browser AI Context"),
+                       QStringLiteral("Apply the combined advanced filter set (marker scope, "
+                                      "debug/empty-operation exclusion, event-id bounds, draw-only) "
+                                      "over the capture's action tree and return the surviving "
+                                      "events as a flat, capped list plus an `aiContext` prose "
+                                      "block. Does not modify or replace the native event tree. "
+                                      "Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          EventBrowserFilterOptions options;
+          options.markerFilter = ArgStr(args, "markerFilter");
+          options.excludeMarkers = ArgBool(args, "excludeMarkers", false);
+          options.onlyDrawCalls = ArgBool(args, "onlyDrawCalls", false);
+          options.excludeDebugMarkers = ArgBool(args, "excludeDebugMarkers", false);
+          options.excludeEmptyOperations = ArgBool(args, "excludeEmptyOperations", false);
+          options.sortByDuration = ArgBool(args, "sortByDuration", false);
+          options.eventIdMin = ArgU32(args, "eventIdMin", 0);
+          options.eventIdMax = ArgU32(args, "eventIdMax", 0);
+          return adapter.BuildEventBrowserContext(options, (int)ArgU32(args, "limit", 500), call,
+                                                  ArgFields(args));
+        });
+  }
+
   {
     QJsonObject props;
 
@@ -1303,6 +1469,134 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                        QStringLiteral("List every bookmark stored in the current capture."),
                        ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
         [&adapter](const QJsonObject &, CallContext &) -> ToolResult { return adapter.Bookmarks(); });
+  }
+
+  // ---- P1-8 investigation bookmarks ----------------------------------------
+
+  // The extended bookmark tools keep the portable note in the capture's own
+  // bookmark section while the tags/conclusion/analysis/screenshot live in a
+  // sidecar next to the capture. Read is a plain snapshot; the two writes are the
+  // only mutating tools in the module and therefore require an explicit
+  // `confirm: true` from the caller (the registry itself does not gate side
+  // effects, so the confirmation is enforced here, on the tool).
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "maxCount", "integer",
+                      "Maximum number of bookmark records to return (default 200, max 2000).");
+    AddSchemaProperty(props, "fields", "array", "Optional list of keys per bookmark to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_bookmarksExtended"),
+                       QStringLiteral("List Investigation Bookmarks"),
+                       QStringLiteral("List the capture's bookmarks with their extended "
+                                      "investigation fields (id, title, conclusion, analysis, "
+                                      "screenshot) merged in from the sidecar document next to "
+                                      "the capture. Falls back to plain bookmarks when no "
+                                      "sidecar exists."),
+                       ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &) -> ToolResult {
+          const int maxCount = (int)ArgU64(args, "maxCount", 0);
+          const QStringList fields = ArgFields(args);
+          ToolResult r = adapter.BookmarksExtended(maxCount, fields);
+          return WithCapture(adapter, r);
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "confirm", "boolean",
+                      "Must be true. The tool writes a bookmark sidecar next to the capture and "
+                      "updates the capture's bookmark list.");
+    AddSchemaProperty(props, "id", "string",
+                      "Stable bookmark id. Omit to derive one from the event id; supplying an "
+                      "existing id updates that record in place.");
+    AddSchemaProperty(props, "eventId", "integer", "Event the bookmark is recorded against.");
+    AddSchemaProperty(props, "title", "string", "Short bookmark title.");
+    AddSchemaProperty(props, "note", "string",
+                      "The portable note mirrored into the capture's native bookmark section.");
+    AddSchemaProperty(props, "conclusion", "string", "Investigation conclusion.");
+    AddSchemaProperty(props, "analysis", "string", "Free-form AI analysis prose.");
+    AddSchemaProperty(props, "screenshotPath", "string", "Path to an associated screenshot.");
+    AddSchemaProperty(props, "confidence", "string",
+                      "One of confirmed, inferred, toVerify, low (default confirmed).");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_updateBookmark"),
+                       QStringLiteral("Update Investigation Bookmark"),
+                       QStringLiteral("Create or update an investigation bookmark. Only the "
+                                      "fields supplied are changed; the note is mirrored into the "
+                                      "capture's bookmark list so the Event Browser shows it. "
+                                      "Requires confirm=true."),
+                       ToolEffects::SideEffect, ToolRequirements::LoadedCapture, MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          if(!ArgBool(args, "confirm", false))
+          {
+            QJsonObject data;
+            data[QStringLiteral("tool")] = QStringLiteral("renderdoc_updateBookmark");
+            return ToolResult::Failure(
+                Error(ErrorCode::SideEffectNotConfirmed,
+                      QStringLiteral("This tool writes a bookmark sidecar next to the capture. "
+                                     "Re-issue the call with confirm=true to proceed."),
+                      data));
+          }
+
+          BookmarkTaggedItem item;
+          item.id = ArgStr(args, "id");
+          const uint32_t eventId = ArgU32(args, "eventId", 0);
+          if(eventId != 0)
+            item.eventId = QString::number(eventId);
+          item.title = ArgStr(args, "title");
+          item.note = ArgStr(args, "note");
+          item.conclusion = ArgStr(args, "conclusion");
+          item.analysis = ArgStr(args, "analysis");
+          item.screenshotPath = ArgStr(args, "screenshotPath");
+
+          const QString conf = ArgStr(args, "confidence");
+          if(conf.compare(QStringLiteral("inferred"), Qt::CaseInsensitive) == 0)
+            item.confidence = Confidence::Inferred;
+          else if(conf.compare(QStringLiteral("toVerify"), Qt::CaseInsensitive) == 0)
+            item.confidence = Confidence::ToVerify;
+          else if(conf.compare(QStringLiteral("low"), Qt::CaseInsensitive) == 0)
+            item.confidence = Confidence::Low;
+          else
+            item.confidence = Confidence::Confirmed;
+
+          ToolResult r = adapter.UpdateBookmark(item, eventId, call);
+          return WithCapture(adapter, r);
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "confirm", "boolean",
+                      "Must be true. The tool rewrites the bookmark sidecar next to the capture "
+                      "and removes the capture's bookmark.");
+    AddSchemaProperty(props, "id", "string", "Stable bookmark id to remove.");
+    AddSchemaProperty(props, "eventId", "integer",
+                      "Event id to remove, used when no id is supplied.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_removeBookmark"),
+                       QStringLiteral("Remove Investigation Bookmark"),
+                       QStringLiteral("Remove an investigation bookmark by id or event id and drop "
+                                      "the matching capture bookmark. Requires confirm=true."),
+                       ToolEffects::SideEffect, ToolRequirements::LoadedCapture, MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          if(!ArgBool(args, "confirm", false))
+          {
+            QJsonObject data;
+            data[QStringLiteral("tool")] = QStringLiteral("renderdoc_removeBookmark");
+            return ToolResult::Failure(
+                Error(ErrorCode::SideEffectNotConfirmed,
+                      QStringLiteral("This tool rewrites the bookmark sidecar next to the capture. "
+                                     "Re-issue the call with confirm=true to proceed."),
+                      data));
+          }
+
+          ToolResult r =
+              adapter.RemoveBookmark(ArgStr(args, "id"), ArgU32(args, "eventId", 0), call);
+          return WithCapture(adapter, r);
+        });
   }
 
   // ---------------------------------------------------------------------------
@@ -1715,7 +2009,7 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                 const rdcarray<CounterResult> results = replay.FetchCounters(counters);
 
                 QJsonArray timings;
-                QJsonArray slowest;
+                QVector<QJsonObject> slowest;
 
                 // The counter is reported in seconds by the replay layer.
                 const double kSecondsToMicro = 1000000.0;
@@ -1744,13 +2038,17 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                 }
 
                 std::sort(slowest.begin(), slowest.end(),
-                          [](const QJsonValue &a, const QJsonValue &b) {
-                            return a.toObject()[QStringLiteral("durationMicro")].toDouble() >
-                                   b.toObject()[QStringLiteral("durationMicro")].toDouble();
+                          [](const QJsonObject &a, const QJsonObject &b) {
+                            return a.value(QStringLiteral("durationMicro")).toDouble() >
+                                   b.value(QStringLiteral("durationMicro")).toDouble();
                           });
 
                 while(slowest.size() > top)
                   slowest.removeLast();
+
+                QJsonArray slowestJson;
+                for(const QJsonObject &entry : slowest)
+                  slowestJson.push_back(entry);
 
                 QJsonObject out;
                 out[QStringLiteral("supported")] = true;
@@ -1758,7 +2056,7 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                 out[QStringLiteral("unit")] = QStringLiteral("microseconds");
                 out[QStringLiteral("eventCount")] = double(timings.size());
                 out[QStringLiteral("timings")] = timings;
-                out[QStringLiteral("slowest")] = slowest;
+                out[QStringLiteral("slowest")] = slowestJson;
                 return ToolResult::Success(out, QString());
               });
         });
@@ -2317,6 +2615,115 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                 out[QStringLiteral("rows")] = rows;
                 return ToolResult::Success(out, QString());
               });
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Environment diagnostics (P2-5)
+  // ---------------------------------------------------------------------------
+  {
+    QJsonObject props;
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_getEnvironmentDiagnostics"),
+                       QStringLiteral("Get Environment Diagnostics"),
+                       QStringLiteral("Report MCP availability, sensitive-data policy, project source mapping "
+                                      "support, and Mali Offline Compiler configuration with actionable "
+                                      "recovery advice. The tool never launches an external executable."),
+                       ToolEffects::ReadOnly, ToolRequirements::None, MakeSchema(props)},
+        [](const QJsonObject &, CallContext &call) -> ToolResult {
+          if(call.ctx == NULL)
+            return ToolResult::Failure(
+                Error(ErrorCode::InternalError, QObject::tr("Capture context is unavailable.")));
+
+          EnvironmentDiagnosticInput input;
+          input.serverEnabled = call.ctx->Config().MCP_Enabled;
+          input.serverPort = call.ctx->Config().MCP_Port;
+          input.sensitiveDataAllowed = call.ctx->Config().MCP_AllowSensitiveData;
+#if defined(RENDERDOC_PLATFORM_WIN32)
+          input.platform = QStringLiteral("windows");
+#elif defined(RENDERDOC_PLATFORM_APPLE)
+          input.platform = QStringLiteral("macos");
+#else
+          input.platform = QStringLiteral("linux");
+#endif
+          const rdcstr &configuredMaliPath = call.ctx->Config().MCP_MaliCompilerPath;
+          input.maliConfiguredPath =
+              QString::fromUtf8(configuredMaliPath.c_str(), int(configuredMaliPath.size()));
+          input.maliResolvedExecutable = ResolveMaliExecutablePath(input.maliConfiguredPath);
+          input.maliExecutableExists = !input.maliResolvedExecutable.isEmpty() &&
+                                       QFileInfo::exists(input.maliResolvedExecutable);
+          input.supportsMali = input.platform == QStringLiteral("windows") ||
+                               input.platform == QStringLiteral("linux");
+          return ToolResult::Success(
+              EnvironmentDiagnosticReportToJson(BuildEnvironmentDiagnosticReport(input)), QString());
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Project source mapping (P2-4)
+  // ---------------------------------------------------------------------------
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "sourceReference", "string",
+                      "Recorded shader/source file reference to resolve against local project files.");
+    AddSchemaProperty(props, "projectRoots", "array",
+                      "Project roots to recursively index for local source files.");
+    AddSchemaProperty(props, "includePaths", "array",
+                      "Additional INCLUDE/dependency paths to recursively index.");
+    AddSchemaProperty(props, "extensions", "array",
+                      "Optional source extensions without requiring a leading dot.");
+    AddSchemaProperty(props, "maxFiles", "integer",
+                      "Maximum files to index (default 20000) to bound local filesystem work.");
+    AddSchemaProperty(props, "fuzzyThreshold", "number",
+                      "Minimum filename similarity for a fuzzy candidate, in the range 0 to 1.");
+    AddSchemaProperty(props, "overrides", "array",
+                      "Manual mappings with sourceReference and localPath fields; an existing localPath wins.");
+    QJsonObject schema = MakeSchema(props);
+    schema[QStringLiteral("required")] = QJsonArray{QStringLiteral("sourceReference")};
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_mapProjectSource"),
+                       QStringLiteral("Map Capture Source To Local Project File"),
+                       QStringLiteral("Recursively index explicitly supplied local project roots and INCLUDE paths, "
+                                      "then resolve a capture/debug source reference using exact, relative, filename, "
+                                      "suffix and fuzzy matching. Returns confidence, alternatives and ambiguity instead "
+                                      "of guessing between equally ranked files."),
+                       ToolEffects::ReadOnly, ToolRequirements::None, schema},
+        [](const QJsonObject &args, CallContext &) -> ToolResult {
+          SourceMappingOptions options;
+          for(const QJsonValue &value : args.value(QStringLiteral("projectRoots")).toArray())
+            if(value.isString())
+              options.projectRoots.push_back(value.toString());
+          for(const QJsonValue &value : args.value(QStringLiteral("includePaths")).toArray())
+            if(value.isString())
+              options.includePaths.push_back(value.toString());
+          const QJsonArray extensions = args.value(QStringLiteral("extensions")).toArray();
+          if(!extensions.isEmpty())
+          {
+            options.extensions.clear();
+            for(const QJsonValue &value : extensions)
+              if(value.isString())
+                options.extensions.push_back(value.toString());
+          }
+          options.maxFiles = int(ArgU64(args, "maxFiles", uint32_t(options.maxFiles)));
+          options.fuzzyThreshold = args.value(QStringLiteral("fuzzyThreshold")).toDouble(options.fuzzyThreshold);
+          options.fuzzyThreshold = std::max(0.0, std::min(1.0, options.fuzzyThreshold));
+
+          QVector<SourceMappingOverride> overrides;
+          for(const QJsonValue &value : args.value(QStringLiteral("overrides")).toArray())
+          {
+            const QJsonObject mapping = value.toObject();
+            if(!mapping.isEmpty())
+              overrides.push_back({mapping.value(QStringLiteral("sourceReference")).toString(),
+                                   mapping.value(QStringLiteral("localPath")).toString()});
+          }
+
+          const SourceMappingIndex index = IndexSourceMappingPaths(options);
+          const SourceMappingResult result =
+              ResolveSourceMapping(index, ArgStr(args, "sourceReference"), overrides);
+          QJsonObject out = SourceMappingResultToJson(result);
+          out[QStringLiteral("index")] = SourceMappingIndexToJson(index);
+          return ToolResult::Success(out, QString());
         });
   }
 

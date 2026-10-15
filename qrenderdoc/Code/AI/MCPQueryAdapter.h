@@ -170,6 +170,35 @@ public:
   // The list of bookmarks in the capture.
   ToolResult Bookmarks();
 
+  // ---- P1-8 investigation bookmarks ---------------------------------------
+
+  // Read the capture's bookmarks and fold in the extended sidecar document next
+  // to the capture (`<capture>.bookmarks.json`). The two halves are kept apart on
+  // purpose: the note round-trips through the native bookmark section so a
+  // bookmark placed here still shows up in the Event Browser strip, while the
+  // tags/conclusion/analysis/screenshot live only in the sidecar so every other
+  // reader of the capture (the Python API, older builds) keeps parsing the plain
+  // `{eventId,text}` records it always did. Returns the merged, per-event list.
+  BookmarkSidecar ReadBookmarkSidecar();
+
+  // The bookmarks as a tool result: every record with its extended fields, plus
+  // the sidecar path/version and a prose block for an AI client. `maxCount` caps
+  // the returned records (default 200, hard max 2000).
+  ToolResult BookmarksExtended(int maxCount = 0, const QStringList &fields = QStringList());
+
+  // Create or update an investigation bookmark. The record is merged into the
+  // sidecar file-wise (only non-empty fields overwrite, so a partial update never
+  // clears a field the caller did not mention) AND its note is mirrored into the
+  // native bookmark list so the Event Browser shows it. This mutates capture state
+  // and writes a file, so the caller must have confirmed the side effect - the tool
+  // registration enforces that, not the registry.
+  ToolResult UpdateBookmark(const BookmarkTaggedItem &item, uint32_t eventId, CallContext &call);
+
+  // Remove an investigation bookmark by its stable id (empty id falls back to the
+  // event id) and drop the matching native bookmark. Same side-effect contract as
+  // UpdateBookmark.
+  ToolResult RemoveBookmark(const QString &bookmarkId, uint32_t eventId, CallContext &call);
+
   // The full pipeline/API-state snapshot from the UI's own capture state: the
   // API properties, frame description/statistics and the current modifications.
   // These are the capture-load-time fields the native UI already has, so they do
@@ -295,6 +324,54 @@ public:
   ToolResult DiffPipelineState(uint32_t eventIdA, uint32_t eventIdB, CallContext &call,
                                const QStringList &fields = QStringList());
 
+  // ---- P1-6 structured performance report ----------------------------------
+
+  // Build a structured performance report for the current capture: per-pass
+  // summed GPU time and the top timed leaf events, each anchored to timing,
+  // shader and resource evidence so a conclusion can always be traced back to an
+  // EID, a resource, a shader stage or a timing sample. `limit` caps both
+  // hottestPasses and hottestEvents (default 20, hard max 200). `includePipeline`
+  // attaches shader/resource evidence read from the pipeline state and
+  // `includeMesh` advertises the mesh-data follow-up for geometric hotspots.
+  // Without EventGPUDuration the ranking cannot be a fact, so the result is
+  // marked ToVerify with a limitation rather than silently returning zeros.
+  ToolResult GeneratePerformanceReport(int limit, bool includePipeline, bool includeMesh,
+                                       CallContext &call,
+                                       const QStringList &fields = QStringList());
+
+  // Serialise the same report as a document whose `format` is "json" or
+  // "markdown" (default). The rendered text is returned in-band as `content`
+  // (next to the structured `report`); the tool performs no file side effect, so
+  // callers decide whether and where to persist it.
+  ToolResult ExportPerformanceReport(const QString &format, int limit, CallContext &call,
+                                     const QStringList &fields = QStringList());
+
+  // Build the whole-investigation report (P1-9): capture metadata plus the P1-8
+  // bookmarks, the P1-6 performance report and the P1-4 resource-memory audit,
+  // packaged into ONE artefact. `format` selects the rendering ("markdown"
+  // default, "json"); the rendering is returned in-band as `content` next to the
+  // structured `report`. `limit` caps the hotspot/audit rows (default 20, hard
+  // max 200) and `includeResources` controls whether the (potentially large)
+  // resource-memory audit is attached. Like ExportPerformanceReport this is
+  // strictly read-only: it never writes to disk, so `outputPath` is a pure UI
+  // concern handled by the dialog. Requires a loaded capture; timings and the
+  // resource audit degrade with a stated limitation rather than failing.
+  ToolResult BuildInvestigationReport(const QString &format, int limit, bool includeResources,
+                                      CallContext &call,
+                                      const QStringList &fields = QStringList());
+
+  // Build the Event Browser AI context (P1-7): apply the plugin's combined filter
+  // set (marker scope, debug/empty-operation exclusion, event-id bounds,
+  // draw-only) over the current action tree and return a flattened, capped list of
+  // the surviving events plus a prose `aiContext` block. This augments the native
+  // event tree and its expression filter box; it does not replace either. `options`
+  // carries the caller's filters and `cap` bounds the row count (default 500). When
+  // EventGPUDuration is unavailable the rows omit `durationUs` and the context is
+  // marked ToVerify with a limitation rather than inventing timings.
+  ToolResult BuildEventBrowserContext(const EventBrowserFilterOptions &options, int cap,
+                                      CallContext &call,
+                                      const QStringList &fields = QStringList());
+
 private:
   // Guards snapshot reads against concurrent UI mutation. The UI thread mutates
   // capture state, so snapshot reads are marshalled onto the UI thread when we
@@ -316,6 +393,13 @@ private:
 // The pipeline-facing JSON keeps the numeric value in `id` and the display name
 // in `name`, so clients don't have to parse the string form.
 QString ResourceIdToString(ResourceId id);
+
+// Structured pipeline-state serialiser, defined in MCPTools.cpp next to the
+// primitive/enum formatters it relies on. The adapter (MCPQueryAdapter.cpp) also
+// serialises pipeline state (the P1-5 snapshot/diff and the P1-6 report), so the
+// declaration lives here to keep both translation units on the same contract.
+// `replay` must already have the desired event selected.
+QJsonObject PipelineStateToJson(IReplayController &replay);
 
 namespace detail
 {
