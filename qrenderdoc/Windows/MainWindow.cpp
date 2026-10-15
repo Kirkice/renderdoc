@@ -3054,7 +3054,7 @@ void MainWindow::on_action_MCP_Server_triggered()
   {
     m_MCPView = new MCPStatusDialog(m_Ctx, m_MCPServer, this);
     m_MCPView->setObjectName(lit("MCPControlCenter"));
-    m_MCPView->setWindowTitle(tr("MCP Control Center"));
+    m_MCPView->setWindowTitle(tr("MCP Server"));
   }
 
   if(ui->toolWindowManager->toolWindows().contains(m_MCPView))
@@ -3063,9 +3063,20 @@ void MainWindow::on_action_MCP_Server_triggered()
     return;
   }
 
-  // AddTo makes the control centre a first-class View tab alongside Texture Viewer,
-  // Pipeline State, and Mesh View. The user can still drag it to another dock area.
-  ui->toolWindowManager->addToolWindow(m_MCPView, mainToolArea(), ToolWindowManager::HideOnClose);
+  // Place MCP directly above the Event Browser so both remain visible in the
+  // capture-navigation column, without consuming space in the analysis views.
+  QWidget *eventBrowser = m_Ctx.GetEventBrowser()->Widget();
+  if(ui->toolWindowManager->toolWindows().contains(eventBrowser))
+  {
+    ToolWindowManager::AreaReference eventBrowserArea(
+        ToolWindowManager::TopOf, ui->toolWindowManager->areaOf(eventBrowser), 0.32f);
+    ui->toolWindowManager->addToolWindow(m_MCPView, eventBrowserArea,
+                                         ToolWindowManager::HideOnClose);
+  }
+  else
+  {
+    ui->toolWindowManager->addToolWindow(m_MCPView, mainToolArea(), ToolWindowManager::HideOnClose);
+  }
   ToolWindowManager::raiseToolWindow(m_MCPView);
 }
 

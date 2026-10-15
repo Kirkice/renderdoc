@@ -27,7 +27,6 @@
 #include <QWidget>
 
 class QLabel;
-class QPlainTextEdit;
 class QPushButton;
 class QTimer;
 
@@ -74,8 +73,6 @@ private:
   QLabel *m_LastError;
   QLabel *m_StatusBadge;
   QLabel *m_Port;
-  QLabel *m_AccessHint;
-  QPlainTextEdit *m_ConfigPreview;
 
   QPushButton *m_Toggle;
   QPushButton *m_Refresh;
