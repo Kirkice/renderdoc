@@ -24,7 +24,11 @@
 
 #include "MCPAnalysisModel.h"
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonValue>
+#include <QPair>
+#include <QSet>
+#include <algorithm>
 #include <string.h>
 #include "MCPQueryAdapter.h"
 #include "MCPTypes.h"
@@ -387,7 +391,7 @@ void BuildFrameAnalysis(const CaptureSnapshot &snapshot, const rdcarray<ActionDe
   DetectIssues(out, options);
 }
 
-static QJsonObject StatisticsToJson(const FrameStatistics &s)
+QJsonObject FrameStatisticsToJson(const FrameStatistics &s)
 {
   QJsonObject j;
   j[QStringLiteral("frameNumber")] = double(s.frameNumber);
@@ -449,7 +453,7 @@ QJsonObject FrameAnalysisToJson(const FrameAnalysis &analysis)
   j[QStringLiteral("api")] = analysis.api;
   j[QStringLiteral("driver")] = analysis.driver;
   j[QStringLiteral("rdocVersion")] = analysis.rdocVersion;
-  j[QStringLiteral("statistics")] = StatisticsToJson(analysis.statistics);
+  j[QStringLiteral("statistics")] = FrameStatisticsToJson(analysis.statistics);
   j[QStringLiteral("counts")] = EventCountsToJson(analysis.counts);
   j[QStringLiteral("resources")] = ResourceInventoryToJson(analysis.resources);
 
@@ -527,6 +531,441 @@ QJsonObject PassGraphToJson(const PassGraph &graph)
   j[QStringLiteral("edgeCount")] = edges.size();
   j[QStringLiteral("totalDurationUs")] = graph.totalDurationUs;
   return j;
+}
+
+//
+// ---- Resource access ------------------------------------------------------
+//
+
+QJsonObject ResourceAccessToJson(const ResourceAccess &access)
+{
+  QJsonObject j;
+  j[QStringLiteral("resourceId")] = ResourceIdToString(access.id);
+  j[QStringLiteral("name")] = access.name;
+  j[QStringLiteral("usage")] = ResourceUsageName(access.usage);
+  j[QStringLiteral("eventId")] = double(access.eventId);
+  j[QStringLiteral("confidence")] = ConfidenceName(access.confidence);
+  return j;
+}
+
+//
+// ---- Reverse search -------------------------------------------------------
+//
+
+QJsonObject ReverseSearchResultToJson(const ReverseSearchResult &result)
+{
+  QJsonObject j;
+  j[QStringLiteral("query")] = result.query;
+  j[QStringLiteral("term")] = result.term;
+  j[QStringLiteral("scannedEventCount")] = double(result.scannedEventCount);
+  j[QStringLiteral("truncated")] = result.truncated;
+  j[QStringLiteral("matchCount")] = double(result.hits.size());
+
+  // The plugin returned a flat, ascending `eventIds` array alongside the
+  // richer per-hit details. Emit both so existing clients keep working and new
+  // ones can read the evidence.
+  QJsonArray eventIds;
+  QJsonArray hits;
+  for(const ReverseSearchHit &hit : result.hits)
+  {
+    eventIds.append(double(hit.eventId));
+
+    QJsonObject h;
+    h[QStringLiteral("eventId")] = double(hit.eventId);
+    h[QStringLiteral("name")] = hit.name;
+    if(ResourceIdValue(hit.resource) != 0)
+      h[QStringLiteral("resourceId")] = ResourceIdToString(hit.resource);
+    h[QStringLiteral("confidence")] = ConfidenceName(hit.confidence);
+
+    QJsonArray resources;
+    for(const ResourceAccess &access : hit.resources)
+      resources.append(ResourceAccessToJson(access));
+    h[QStringLiteral("resources")] = resources;
+
+    hits.append(h);
+  }
+  j[QStringLiteral("eventIds")] = eventIds;
+  j[QStringLiteral("hits")] = hits;
+  return j;
+}
+
+//
+// ---- Pass graph result ----------------------------------------------------
+//
+
+QJsonObject PassGraphResultToJson(const PassGraphResult &result)
+{
+  QJsonObject j;
+  j[QStringLiteral("scannedEventCount")] = double(result.scannedEventCount);
+  j[QStringLiteral("truncated")] = result.truncated;
+
+  QJsonArray edges;
+  for(const ResourceEdge &e : result.edges)
+  {
+    QJsonObject o;
+    o[QStringLiteral("fromEventId")] = double(e.fromEventId);
+    o[QStringLiteral("toEventId")] = double(e.toEventId);
+    o[QStringLiteral("resourceId")] = ResourceIdToString(e.resource);
+    o[QStringLiteral("resourceName")] = e.resourceName;
+    o[QStringLiteral("usage")] = e.usage;
+    o[QStringLiteral("confidence")] = ConfidenceName(e.confidence);
+    edges.append(o);
+  }
+  j[QStringLiteral("edges")] = edges;
+  j[QStringLiteral("edgeCount")] = edges.size();
+  return j;
+}
+
+//
+// ---- Resource memory audit ------------------------------------------------
+//
+
+static QJsonObject TextureAuditToJson(const TextureAudit &t)
+{
+  QJsonObject j;
+  j[QStringLiteral("count")] = double(t.count);
+
+  // byFormat is emitted as an object keyed by format name, matching the plugin.
+  QJsonObject byFormat;
+  for(const QPair<QString, uint32_t> &entry : t.byFormat)
+    byFormat[entry.first] = double(entry.second);
+  j[QStringLiteral("byFormat")] = byFormat;
+
+  QJsonArray formats;
+  for(const QPair<QString, uint32_t> &entry : t.byFormat)
+    formats.append(entry.first);
+  j[QStringLiteral("formats")] = formats;
+
+  j[QStringLiteral("mipLevelsAvailable")] = double(t.mipLevelsAvailable);
+  j[QStringLiteral("missingMipChain")] = double(t.missingMipChain);
+  j[QStringLiteral("fullMipChain")] = double(t.fullMipChain);
+
+  QJsonArray dims;
+  for(const QString &d : t.dimensions)
+    dims.append(d);
+  j[QStringLiteral("dimensions")] = dims;
+  return j;
+}
+
+QJsonObject ResourceMemoryAuditToJson(const ResourceMemoryAudit &audit)
+{
+  QJsonObject j;
+  j[QStringLiteral("totalResources")] = double(audit.totalResources);
+  j[QStringLiteral("totalBytes")] = double(audit.totalBytes);
+  j[QStringLiteral("totalMiB")] = audit.totalMiB;
+  j[QStringLiteral("textureCount")] = double(audit.textureCount);
+  j[QStringLiteral("bufferCount")] = double(audit.bufferCount);
+  j[QStringLiteral("shaderCount")] = double(audit.shaderCount);
+  j[QStringLiteral("totalTextureBytes")] = double(audit.totalTextureBytes);
+  j[QStringLiteral("totalBufferBytes")] = double(audit.totalBufferBytes);
+
+  QJsonArray largest;
+  for(const ResourceMemoryRow &r : audit.largestResources)
+  {
+    QJsonObject o;
+    o[QStringLiteral("resourceId")] = ResourceIdToString(r.resourceId);
+    o[QStringLiteral("name")] = r.name;
+    o[QStringLiteral("type")] = r.type;
+    if(!r.textureType.isEmpty())
+      o[QStringLiteral("textureType")] = r.textureType;
+    o[QStringLiteral("byteSize")] = double(r.byteSize);
+    if(r.width != 0)
+    {
+      o[QStringLiteral("width")] = double(r.width);
+      o[QStringLiteral("height")] = double(r.height);
+      o[QStringLiteral("depth")] = double(r.depth);
+      o[QStringLiteral("mips")] = double(r.mips);
+      o[QStringLiteral("arraySize")] = double(r.arraySize);
+    }
+    if(!r.format.isEmpty())
+      o[QStringLiteral("format")] = r.format;
+    if(!r.usage.isEmpty())
+      o[QStringLiteral("usage")] = r.usage;
+    largest.append(o);
+  }
+  j[QStringLiteral("largestResources")] = largest;
+  j[QStringLiteral("largestResourceCount")] = largest.size();
+  j[QStringLiteral("textureAudit")] = TextureAuditToJson(audit.textures);
+
+  QJsonArray notes;
+  for(const QString &n : audit.notes)
+    notes.append(n);
+  j[QStringLiteral("notes")] = notes;
+  j[QStringLiteral("confidence")] = ConfidenceName(audit.confidence);
+  return j;
+}
+
+//
+// ---- Resource lifetime ----------------------------------------------------
+//
+
+QJsonObject ResourceLifetimeToJson(const ResourceLifetimeResult &result)
+{
+  QJsonObject j;
+  j[QStringLiteral("available")] = result.available;
+  j[QStringLiteral("scannedEventCount")] = double(result.scannedEventCount);
+  j[QStringLiteral("truncated")] = result.truncated;
+  j[QStringLiteral("rowCount")] = double(result.rows.size());
+
+  QJsonArray rows;
+  for(const ResourceLifetimeRow &r : result.rows)
+  {
+    QJsonObject o;
+    o[QStringLiteral("resourceId")] = ResourceIdToString(r.resourceId);
+    o[QStringLiteral("name")] = r.name;
+    o[QStringLiteral("type")] = r.type;
+    o[QStringLiteral("byteSize")] = double(r.byteSize);
+    o[QStringLiteral("observedEventCount")] = double(r.observedEventCount);
+    o[QStringLiteral("firstEventId")] = double(r.firstEventId);
+    o[QStringLiteral("lastEventId")] = double(r.lastEventId);
+    o[QStringLiteral("confidence")] = ConfidenceName(r.confidence);
+
+    QJsonArray accesses;
+    for(const ResourceAccess &a : r.accesses)
+      accesses.append(ResourceAccessToJson(a));
+    o[QStringLiteral("accesses")] = accesses;
+    rows.append(o);
+  }
+  j[QStringLiteral("rows")] = rows;
+  return j;
+}
+
+//
+// ---- Unused-resource identification ---------------------------------------
+//
+
+QJsonObject UnusedResourceResultToJson(const UnusedResourceResult &result)
+{
+  QJsonObject j;
+  j[QStringLiteral("available")] = result.available;
+  j[QStringLiteral("scannedEventCount")] = double(result.scannedEventCount);
+  j[QStringLiteral("candidateCount")] = double(result.candidates.size());
+  j[QStringLiteral("confidence")] = ConfidenceName(result.confidence);
+  j[QStringLiteral("limitation")] = result.limitation;
+
+  QJsonArray candidates;
+  for(const UnusedResource &u : result.candidates)
+  {
+    QJsonObject o;
+    o[QStringLiteral("resourceId")] = ResourceIdToString(u.resourceId);
+    o[QStringLiteral("name")] = u.name;
+    o[QStringLiteral("type")] = u.type;
+    o[QStringLiteral("byteSize")] = double(u.byteSize);
+    candidates.append(o);
+  }
+  j[QStringLiteral("candidates")] = candidates;
+  return j;
+}
+
+//
+// ---- Suspected resource leaks ---------------------------------------------
+//
+
+QJsonObject LeakResultToJson(const LeakResult &result)
+{
+  QJsonObject j;
+  j[QStringLiteral("available")] = result.available;
+  j[QStringLiteral("scannedEventCount")] = double(result.scannedEventCount);
+  j[QStringLiteral("candidateCount")] = double(result.candidates.size());
+  j[QStringLiteral("confidence")] = ConfidenceName(result.confidence);
+  j[QStringLiteral("limitation")] = result.limitation;
+
+  QJsonArray candidates;
+  for(const LeakCandidate &c : result.candidates)
+  {
+    QJsonObject o;
+    o[QStringLiteral("resourceId")] = ResourceIdToString(c.resourceId);
+    o[QStringLiteral("name")] = c.name;
+    o[QStringLiteral("type")] = c.type;
+    o[QStringLiteral("byteSize")] = double(c.byteSize);
+    o[QStringLiteral("createdEventId")] = double(c.createdEventId);
+    o[QStringLiteral("lastEventId")] = double(c.lastEventId);
+    o[QStringLiteral("observedEventCount")] = double(c.observedEventCount);
+    o[QStringLiteral("reason")] = c.reason;
+    o[QStringLiteral("confidence")] = ConfidenceName(c.confidence);
+    candidates.append(o);
+  }
+  j[QStringLiteral("candidates")] = candidates;
+  return j;
+}
+
+//
+// ---- P1-5 pipeline / shader snapshot and diff ----------------------------
+//
+
+// Compact rendering of a snapshot value for the before/after columns, matching
+// the plugin's stringify-style messages but staying readable for the common
+// scalar/enum cases (which is most of a pipeline state).
+static QString SnapshotValueString(const QJsonValue &v)
+{
+  if(v.isNull() || v.isUndefined())
+    return QString::fromUtf8("none");
+  if(v.isBool())
+    return v.toBool() ? QString::fromUtf8("true") : QString::fromUtf8("false");
+  if(v.isDouble())
+    return QString::number(v.toDouble());
+  if(v.isString())
+    return v.toString();
+  if(v.isArray())
+    return QString::fromUtf8(QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact));
+  if(v.isObject())
+    return QString::fromUtf8(QJsonDocument(v.toObject()).toJson(QJsonDocument::Compact));
+  return QString();
+}
+
+// Flatten a snapshot into dotted paths. Nested objects recurse; arrays index
+// their elements; leaf scalars/strings/bools are recorded. An empty container
+// is recorded as a single leaf so that "no output targets" vs "one output
+// target" shows up as a change at the container path.
+static void FlattenSnapshot(const QJsonValue &value, const QString &prefix,
+                            QVector<QPair<QString, QJsonValue>> &out)
+{
+  if(value.isObject())
+  {
+    const QJsonObject o = value.toObject();
+    if(o.isEmpty())
+    {
+      if(!prefix.isEmpty())
+        out.push_back(qMakePair(prefix, value));
+      return;
+    }
+    for(auto it = o.constBegin(); it != o.constEnd(); ++it)
+    {
+      const QString key = prefix.isEmpty() ? it.key() : (prefix + QString::fromUtf8(".") + it.key());
+      FlattenSnapshot(it.value(), key, out);
+    }
+    return;
+  }
+
+  if(value.isArray())
+  {
+    const QJsonArray a = value.toArray();
+    if(a.isEmpty())
+    {
+      if(!prefix.isEmpty())
+        out.push_back(qMakePair(prefix, value));
+      return;
+    }
+    for(int i = 0; i < a.size(); i++)
+      FlattenSnapshot(a[i], prefix + QString::fromUtf8(".") + QString::number(i), out);
+    return;
+  }
+
+  if(!prefix.isEmpty())
+    out.push_back(qMakePair(prefix, value));
+}
+
+QJsonObject PipelineDiffResultToJson(const PipelineDiffResult &result)
+{
+  QJsonObject j;
+  j[QStringLiteral("available")] = result.available;
+  j[QStringLiteral("eventIdA")] = double(result.eventIdA);
+  j[QStringLiteral("eventIdB")] = double(result.eventIdB);
+  j[QStringLiteral("hasChanges")] = result.hasChanges;
+  j[QStringLiteral("changeCount")] = double(result.changes.size());
+
+  QJsonArray stages;
+  for(const QString &s : result.inspectedStages)
+    stages.append(s);
+  j[QStringLiteral("inspectedStages")] = stages;
+
+  // Both sorted by path so the diff is deterministic and easy to read.
+  QVector<PipelineFieldChange> ordered = result.changes;
+  std::sort(ordered.begin(), ordered.end(),
+            [](const PipelineFieldChange &a, const PipelineFieldChange &b) {
+              return a.path < b.path;
+            });
+
+  QJsonArray changes;
+  for(const PipelineFieldChange &c : ordered)
+  {
+    QJsonObject o;
+    o[QStringLiteral("path")] = c.path;
+    o[QStringLiteral("group")] = c.group;
+    o[QStringLiteral("before")] = c.before;
+    o[QStringLiteral("after")] = c.after;
+    o[QStringLiteral("beforeValue")] = c.beforeValue;
+    o[QStringLiteral("afterValue")] = c.afterValue;
+    changes.append(o);
+  }
+  j[QStringLiteral("changes")] = changes;
+
+  // Human-readable one-liners, matching the plugin's `changes` array so clients
+  // written against the extension keep working.
+  QJsonArray messages;
+  if(result.shaderChanges.isEmpty())
+  {
+    for(const PipelineFieldChange &c : ordered)
+      messages.append(QString::fromUtf8("%1: %2 -> %3").arg(c.path, c.before, c.after));
+  }
+  else
+  {
+    QVector<PipelineShaderChange> shaders = result.shaderChanges;
+    std::sort(shaders.begin(), shaders.end(),
+              [](const PipelineShaderChange &a, const PipelineShaderChange &b) {
+                return a.stage < b.stage;
+              });
+    QSet<QString> shaderPaths;
+    for(const PipelineShaderChange &s : shaders)
+    {
+      messages.append(QString::fromUtf8("Shader %1: %2 -> %3")
+                          .arg(s.stage, s.before.isEmpty() ? QString::fromUtf8("none") : s.before,
+                               s.after.isEmpty() ? QString::fromUtf8("none") : s.after));
+      shaderPaths.insert(QString::fromUtf8("shaders.") + s.stage);
+    }
+    for(const PipelineFieldChange &c : ordered)
+    {
+      bool covered = false;
+      for(const QString &p : shaderPaths)
+      {
+        if(c.path.startsWith(p))
+        {
+          covered = true;
+          break;
+        }
+      }
+      if(!covered)
+        messages.append(QString::fromUtf8("%1: %2 -> %3").arg(c.path, c.before, c.after));
+    }
+  }
+  j[QStringLiteral("changesText")] = messages;
+
+  QJsonArray shaderStages;
+  for(const PipelineShaderChange &s : result.shaderChanges)
+  {
+    QJsonObject o;
+    o[QStringLiteral("stage")] = s.stage;
+    o[QStringLiteral("before")] = s.before;
+    o[QStringLiteral("after")] = s.after;
+    shaderStages.append(o);
+  }
+  j[QStringLiteral("shaderChanges")] = shaderStages;
+
+  j[QStringLiteral("confidence")] = ConfidenceName(result.confidence);
+  j[QStringLiteral("limitation")] = result.limitation;
+  return j;
+}
+
+QStringList SnapshotStagesFromPipelineJson(const QJsonObject &stateA, const QJsonObject &stateB)
+{
+  // Canonical order, matching the plugin's stage list plus the extended native
+  // names. Only stages present in at least one snapshot are returned.
+  static const char *kStages[] = {"vertex",     "hull",      "domain", "geometry",
+                                  "fragment",   "pixel",     "compute", "task",
+                                  "mesh",       "amplification"};
+  static const int kStageCount = int(sizeof(kStages) / sizeof(kStages[0]));
+
+  const QJsonObject sa = stateA.value(QStringLiteral("shaders")).toObject();
+  const QJsonObject sb = stateB.value(QStringLiteral("shaders")).toObject();
+
+  QStringList out;
+  for(int i = 0; i < kStageCount; i++)
+  {
+    const QString name = QString::fromUtf8(kStages[i]);
+    if(sa.contains(name) || sb.contains(name))
+      out.push_back(name);
+  }
+  return out;
 }
 
 }    // namespace MCP

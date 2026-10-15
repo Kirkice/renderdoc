@@ -37,6 +37,17 @@
 // per translation unit that needs enum stringification, matching QRDUtils.cpp.
 #include "renderdoc_tostr.inl"
 
+#include <QHash>
+#include <QJsonDocument>
+#include <QJsonValue>
+#include <QPair>
+#include <QRegularExpression>
+#include <QSet>
+#include <algorithm>
+
+#include "Code/AI/MCPAnalysisModel.h"
+#include "renderdoc/api/replay/version.h"
+
 namespace MCP
 {
 
@@ -344,7 +355,12 @@ CaptureSnapshot QueryAdapter::Snapshot()
       // in-frame counters below are therefore the total number of bindings
       // recorded for the frame, not a distinct-resource count (the resource /
       // texture / buffer totals come from the ICaptureContext lists below).
-      const FrameStatistics &stats = frame.stats;
+      //
+      // NOTE: this is the *renderdoc* global FrameStatistics from FrameDescription,
+      // not MCP::FrameStatistics (the analysis model pulled in by
+      // MCPAnalysisModel.h). Inside namespace MCP the unqualified name would bind
+      // to the model type, so the global one must be explicitly qualified.
+      const ::FrameStatistics &stats = frame.stats;
       uint32_t totalConstants = 0, totalSamplers = 0, totalResources = 0;
       for(const ConstantBindStats &cs : stats.constants)
         totalConstants += cs.sets;
@@ -454,7 +470,8 @@ ToolResult QueryAdapter::FrameInfo()
       return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
 
     FrameDescription f = m_Ctx->FrameInfo();
-    const FrameStatistics &st = f.stats;
+    // Explicitly the renderdoc global FrameStatistics - see the note in Snapshot().
+    const ::FrameStatistics &st = f.stats;
 
     uint32_t totalConstants = 0, totalSamplers = 0, totalResources = 0;
     for(const ConstantBindStats &cs : st.constants)
@@ -987,6 +1004,2076 @@ bool QueryAdapter::ReplayAvailable() const
   bool ok = false;
   replay.BlockInvoke([&](IReplayController *r) { ok = (r != NULL); });
   return ok;
+}
+
+// ---- P1-2 frame analysis -------------------------------------------------
+
+namespace
+{
+// Raw numeric ResourceId value, so a UI-thread map can be keyed without
+// depending on ResourceId's ordering operators.
+uint64_t ResIdValue(ResourceId id)
+{
+  uint64_t v = 0;
+  memcpy(&v, &id, sizeof(v));
+  return v;
+}
+
+// Action *bit* names, emitted as a "|"-joined string so it matches the flag
+// strings the plugin produced (e.g. "Drawcall|Instanced"). The numeric value is
+// emitted alongside it so clients can also bit-test.
+QString FlagsToString(ActionFlags flags)
+{
+  struct Entry
+  {
+    ActionFlags bit;
+    const char *name;
+  };
+  static const Entry bits[] = {
+      {ActionFlags::Clear, "Clear"},
+      {ActionFlags::Drawcall, "Drawcall"},
+      {ActionFlags::Dispatch, "Dispatch"},
+      {ActionFlags::MeshDispatch, "MeshDispatch"},
+      {ActionFlags::CmdList, "CmdList"},
+      {ActionFlags::SetMarker, "SetMarker"},
+      {ActionFlags::PushMarker, "PushMarker"},
+      {ActionFlags::PopMarker, "PopMarker"},
+      {ActionFlags::Present, "Present"},
+      {ActionFlags::MultiAction, "MultiAction"},
+      {ActionFlags::Copy, "Copy"},
+      {ActionFlags::Resolve, "Resolve"},
+      {ActionFlags::GenMips, "GenMips"},
+      {ActionFlags::PassBoundary, "PassBoundary"},
+      {ActionFlags::DispatchRay, "DispatchRay"},
+      {ActionFlags::BuildAccStruct, "BuildAccStruct"},
+      {ActionFlags::Indexed, "Indexed"},
+      {ActionFlags::Instanced, "Instanced"},
+      {ActionFlags::Indirect, "Indirect"},
+      {ActionFlags::BeginPass, "BeginPass"},
+      {ActionFlags::EndPass, "EndPass"},
+  };
+
+  QStringList names;
+  for(const Entry &e : bits)
+  {
+    if((flags & e.bit) != ActionFlags::NoFlags)
+      names.push_back(QString::fromLatin1(e.name));
+  }
+  return names.join(QStringLiteral("|"));
+}
+
+// Depth-first search for an action id inside the root action list. Replay only
+// exposes the roots, so the tree has to be walked to reach a leaf event.
+const ActionDescription *HotFindAction(const rdcarray<ActionDescription> &actions, uint32_t eventId)
+{
+  for(const ActionDescription &a : actions)
+  {
+    if(a.eventId == eventId)
+      return &a;
+
+    if(!a.children.empty())
+    {
+      const ActionDescription *found = HotFindAction(a.children, eventId);
+      if(found != NULL)
+        return found;
+    }
+  }
+  return NULL;
+}
+
+// Lower-case stage tag ("vs", "ps", "cs", ...) so the output lines up with the
+// plugin's stage keys rather than the native "Vertex"/"Pixel" spelling.
+QString HotStageName(ShaderStage stage)
+{
+  switch(stage)
+  {
+    case ShaderStage::Vertex: return QStringLiteral("vs");
+    case ShaderStage::Hull: return QStringLiteral("hs");
+    case ShaderStage::Domain: return QStringLiteral("ds");
+    case ShaderStage::Geometry: return QStringLiteral("gs");
+    case ShaderStage::Pixel: return QStringLiteral("ps");
+    case ShaderStage::Compute: return QStringLiteral("cs");
+    case ShaderStage::Task: return QStringLiteral("ts");
+    case ShaderStage::Mesh: return QStringLiteral("ms");
+    case ShaderStage::RayGen: return QStringLiteral("raygen");
+    case ShaderStage::Intersection: return QStringLiteral("intersection");
+    case ShaderStage::AnyHit: return QStringLiteral("anyhit");
+    case ShaderStage::ClosestHit: return QStringLiteral("closesthit");
+    case ShaderStage::Miss: return QStringLiteral("miss");
+    case ShaderStage::Callable: return QStringLiteral("callable");
+    default: return QString();
+  }
+}
+
+// Minimal texture facts needed to describe a render target.
+struct HotTexInfo
+{
+  QString name;
+  QString format;
+  uint32_t width = 0;
+  uint32_t height = 0;
+};
+
+QString TexName(ResourceId id, const QHash<quint64, QString> &names)
+{
+  const QString n = names.value(ResIdValue(id));
+  return n.isEmpty() ? ResourceIdToString(id) : n;
+}
+}    // namespace
+
+ToolResult QueryAdapter::AnalyzeFrame(const FrameAnalysisOptions &options, const QStringList &fields)
+{
+  return ReadOnUIThread<ToolResult>([this, options, fields]() -> ToolResult {
+    if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+      return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+    if(m_Ctx->IsCaptureLoading())
+      return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+
+    const CaptureSnapshot snap = Snapshot();
+
+    FrameDescription frame = m_Ctx->FrameInfo();
+
+    FrameAnalysisOptions opts = options;
+    if(opts.rdocVersion.isEmpty())
+      opts.rdocVersion = QString::fromLatin1(FULL_VERSION_STRING);
+
+    FrameAnalysis analysis;
+    BuildFrameAnalysis(snap, m_Ctx->CurRootActions(), m_Ctx->GetStructuredFile(), m_Ctx->GetResources(),
+                       m_Ctx->GetTextures(), m_Ctx->GetBuffers(), analysis, opts, &frame);
+
+    QJsonObject j = FrameAnalysisToJson(analysis);
+
+    // The analysis body is field-filterable, but the relating snapshot is always
+    // present so a client can tell which capture/frame the result belongs to.
+    if(!fields.isEmpty())
+    {
+      auto want = [&](const char *n) { return fields.contains(QString::fromLatin1(n)); };
+
+      QJsonObject filtered;
+      for(auto it = j.constBegin(); it != j.constEnd(); ++it)
+      {
+        const QString key = it.key();
+        if(key == QStringLiteral("snapshot") || want(key.toUtf8().constData()))
+          filtered[key] = it.value();
+      }
+      j = filtered;
+    }
+
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
+}
+
+ToolResult QueryAdapter::FrameSummary(const QStringList &fields)
+{
+  return ReadOnUIThread<ToolResult>([this, fields]() -> ToolResult {
+    if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+      return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+    if(m_Ctx->IsCaptureLoading())
+      return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+
+    const SDFile &sdfile = m_Ctx->GetStructuredFile();
+    const rdcarray<ActionDescription> &roots = m_Ctx->CurRootActions();
+
+    auto want = [&](const char *n) {
+      return fields.isEmpty() || fields.contains(QString::fromLatin1(n));
+    };
+
+    // Flatten the action tree once into a pre-order list; both the leaf-only and
+    // the whole-tree counts below are derived from this single walk.
+    rdcarray<EventNode> events;
+    FlattenEvents(roots, sdfile, events);
+
+    QJsonObject j;
+
+    // Top-level passes: one entry per root marker/action, with its child count.
+    if(want("topLevelPasses"))
+    {
+      QJsonArray passes;
+      for(const ActionDescription &a : roots)
+      {
+        QJsonObject p;
+        p[QStringLiteral("eventId")] = double(a.eventId);
+        p[QStringLiteral("name")] = FromRdcStr(a.GetName(sdfile));
+        p[QStringLiteral("flags")] = FlagsToString(a.flags);
+        p[QStringLiteral("childCount")] = double((uint32_t)a.children.size());
+        passes.push_back(p);
+      }
+      j[QStringLiteral("topLevelPasses")] = passes;
+    }
+
+    // Leaf-only effect counts, matching the plugin's frame summary: containers
+    // and markers are not counted, only the concrete effects at the leaves
+    // (nodes with no children).
+    if(want("leafCounts"))
+    {
+      rdcarray<EventNode> leaves;
+      for(const EventNode &n : events)
+      {
+        if(n.childCount == 0)
+          leaves.push_back(n);
+      }
+
+      const EventCounts counts = CountEffects(leaves);
+
+      QJsonObject leaf;
+      leaf[QStringLiteral("total")] = double(counts.total);
+      leaf[QStringLiteral("draws")] = double(counts.draws);
+      leaf[QStringLiteral("dispatches")] = double(counts.dispatches);
+      leaf[QStringLiteral("clears")] = double(counts.clears);
+      j[QStringLiteral("leafCounts")] = leaf;
+    }
+
+    // Frame statistics, computed natively rather than shelling out to a bridge.
+    if(want("statistics"))
+    {
+      FrameDescription frame = m_Ctx->FrameInfo();
+      FrameStatistics stats;
+      BuildFrameStatistics(frame, stats);
+      j[QStringLiteral("statistics")] = FrameStatisticsToJson(stats);
+    }
+
+    if(want("counts"))
+    {
+      // Whole-tree effect counts (not just leaves) are useful denominators for
+      // clients that compare against the leaf counts.
+      j[QStringLiteral("counts")] = EventCountsToJson(CountEffects(events));
+    }
+
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
+}
+
+ToolResult QueryAdapter::HotEvents(uint32_t topCount, CallContext &call, const QStringList &fields)
+{
+  if(topCount == 0)
+    topCount = 10;
+
+  return DispatchBlock("renderdoc_getHotEvents", call,
+                       [topCount, fields](IReplayController &replay) -> ToolResult {
+    auto want = [&](const char *n) {
+      return fields.isEmpty() || fields.contains(QString::fromLatin1(n));
+    };
+
+    // EventGPUDuration is the only supported counter for per-event timing; when
+    // an API does not support it the report is marked unsupported instead of
+    // silently returning empty timings.
+    bool supported = false;
+    for(const GPUCounter &c : replay.EnumerateCounters())
+    {
+      if(c == GPUCounter::EventGPUDuration)
+      {
+        supported = true;
+        break;
+      }
+    }
+
+    if(!supported)
+    {
+      QJsonObject j;
+      j[QStringLiteral("supported")] = false;
+      j[QStringLiteral("counter")] = QStringLiteral("EventGPUDuration");
+      j[QStringLiteral("reason")] = QStringLiteral(
+          "this capture's API does not expose the EventGPUDuration counter");
+      return ToolResult::Success(j);
+    }
+
+    const rdcarray<CounterResult> results =
+        replay.FetchCounters(rdcarray<GPUCounter>{GPUCounter::EventGPUDuration});
+
+    const double kSecondsToMicro = 1000000.0;
+
+    double totalUs = 0.0;
+    rdcarray<EventTiming> timings;
+    for(const CounterResult &r : results)
+    {
+      // A negative value means "not measured for this event"; it must not be
+      // treated as a real (near-zero) duration.
+      if(r.value.d < 0.0)
+        continue;
+
+      const double micro = r.value.d * kSecondsToMicro;
+      totalUs += micro;
+
+      EventTiming t;
+      t.eventId = r.eventId;
+      t.durationUs = micro;
+      t.confidence = Confidence::Confirmed;
+      timings.push_back(t);
+    }
+
+    std::sort(timings.begin(), timings.end(),
+              [](const EventTiming &l, const EventTiming &r) { return l.durationUs > r.durationUs; });
+
+    if((int)timings.size() > (int)topCount)
+      timings.resize((size_t)topCount);
+
+    QJsonObject j;
+    j[QStringLiteral("supported")] = true;
+    j[QStringLiteral("counter")] = QStringLiteral("EventGPUDuration");
+    j[QStringLiteral("unit")] = QStringLiteral("us");
+    j[QStringLiteral("measuredEventCount")] = double((uint32_t)results.size());
+    j[QStringLiteral("totalDurationUs")] = totalUs;
+
+    if(want("events"))
+    {
+      QJsonArray arr;
+      for(const EventTiming &t : timings)
+      {
+        const double share = totalUs > 0.0 ? (t.durationUs / totalUs) : 0.0;
+
+        QJsonObject e;
+        e[QStringLiteral("eventId")] = double(t.eventId);
+        e[QStringLiteral("durationUs")] = t.durationUs;
+        e[QStringLiteral("durationMs")] = t.durationUs / 1000.0;
+        e[QStringLiteral("share")] = share;
+        e[QStringLiteral("confidence")] = ConfidenceName(t.confidence);
+        e[QStringLiteral("evidence")] = EvidenceToJson(TimingEvidence(t.eventId, t.durationUs));
+        arr.push_back(e);
+      }
+      j[QStringLiteral("events")] = arr;
+    }
+
+    if(want("hottest"))
+    {
+      if(timings.empty())
+      {
+        j[QStringLiteral("hottest")] = QJsonValue::Null;
+      }
+      else
+      {
+        const EventTiming &t = timings[0];
+        QJsonObject e;
+        e[QStringLiteral("eventId")] = double(t.eventId);
+        e[QStringLiteral("durationUs")] = t.durationUs;
+        e[QStringLiteral("durationMs")] = t.durationUs / 1000.0;
+        e[QStringLiteral("share")] = totalUs > 0.0 ? (t.durationUs / totalUs) : 0.0;
+        j[QStringLiteral("hottest")] = e;
+      }
+    }
+
+    return ToolResult::Success(j);
+  });
+}
+
+ToolResult QueryAdapter::AnalyzeHotEvent(uint32_t eventId, bool includeShaderInfo, bool includeMeshData,
+                                         CallContext &call, const QStringList &fields)
+{
+  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+  if(m_Ctx->IsCaptureLoading())
+    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+
+  // Resource names and texture facts are materialised on the UI thread once and
+  // then captured by value, because the replay-thread lambda below must not touch
+  // ICaptureContext directly.
+  const QHash<quint64, QString> resourceNames =
+      ReadOnUIThread<QHash<quint64, QString>>([this]() -> QHash<quint64, QString> {
+    QHash<quint64, QString> names;
+    for(const ResourceDescription &r : m_Ctx->GetResources())
+    {
+      const QString name = !r.name.empty() ? FromRdcStr(r.name)
+                                           : (!r.autogeneratedName.empty()
+                                                  ? FromRdcStr(r.autogeneratedName)
+                                                  : QString());
+      if(!name.isEmpty())
+        names.insert(ResIdValue(r.resourceId), name);
+    }
+    return names;
+  });
+
+  const QHash<quint64, HotTexInfo> textures =
+      ReadOnUIThread<QHash<quint64, HotTexInfo>>([this]() -> QHash<quint64, HotTexInfo> {
+    QHash<quint64, HotTexInfo> map;
+    for(const TextureDescription &t : m_Ctx->GetTextures())
+    {
+      HotTexInfo info;
+      info.name = !t.autogeneratedName.empty() ? FromRdcStr(t.autogeneratedName) : QString();
+      info.format = detail::ResourceFormatString(t.format);
+      info.width = t.width;
+      info.height = t.height;
+      map.insert(ResIdValue(t.resourceId), info);
+    }
+    return map;
+  });
+
+  return DispatchBlock(
+      "renderdoc_analyzeHotEvent", call,
+      [eventId, includeShaderInfo, includeMeshData, resourceNames, textures, fields](
+          IReplayController &replay) -> ToolResult {
+        auto want = [&](const char *n) {
+          return fields.isEmpty() || fields.contains(QString::fromLatin1(n));
+        };
+
+        const rdcarray<ActionDescription> &roots = replay.GetRootActions();
+
+        QJsonObject j;
+        j[QStringLiteral("available")] = true;
+        j[QStringLiteral("eventId")] = double(eventId);
+
+        const ActionDescription *action = HotFindAction(roots, eventId);
+
+        if(want("event"))
+        {
+          if(action == NULL)
+          {
+            j[QStringLiteral("event")] = QJsonValue::Null;
+          }
+          else
+          {
+            QJsonObject e;
+            e[QStringLiteral("eventId")] = double(action->eventId);
+            e[QStringLiteral("actionId")] = double(action->actionId);
+            e[QStringLiteral("name")] = FromRdcStr(action->GetName(replay.GetStructuredFile()));
+            e[QStringLiteral("flags")] = FlagsToString(action->flags);
+            e[QStringLiteral("numIndices")] = double(action->numIndices);
+            e[QStringLiteral("numInstances")] = double(action->numInstances);
+            j[QStringLiteral("event")] = e;
+          }
+        }
+
+        // ---- duration (facts from the timing counter) ----------------------
+        double durationUs = 0.0;
+        bool haveDuration = false;
+        {
+          bool supported = false;
+          for(const GPUCounter &c : replay.EnumerateCounters())
+          {
+            if(c == GPUCounter::EventGPUDuration)
+            {
+              supported = true;
+              break;
+            }
+          }
+
+          if(supported)
+          {
+            const rdcarray<CounterResult> results =
+                replay.FetchCounters(rdcarray<GPUCounter>{GPUCounter::EventGPUDuration});
+            for(const CounterResult &r : results)
+            {
+              if(r.eventId == eventId && r.value.d >= 0.0)
+              {
+                durationUs = r.value.d * 1000000.0;
+                haveDuration = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if(haveDuration)
+        {
+          j[QStringLiteral("durationUs")] = durationUs;
+          j[QStringLiteral("durationMs")] = durationUs / 1000.0;
+          j[QStringLiteral("durationConfidence")] = ConfidenceName(Confidence::Confirmed);
+          j[QStringLiteral("durationEvidence")] =
+              EvidenceToJson(TimingEvidence(eventId, durationUs));
+        }
+        else
+        {
+          j[QStringLiteral("durationUs")] = QJsonValue::Null;
+          j[QStringLiteral("durationMs")] = QJsonValue::Null;
+          j[QStringLiteral("durationConfidence")] = ConfidenceName(Confidence::ToVerify);
+        }
+
+        // ---- pipeline state + resource/shader derivation -------------------
+        const PipeState &pipe = replay.GetPipelineState();
+        const APIProperties props = replay.GetAPIProperties();
+
+        QJsonObject pipeline;
+        if(want("pipelineState"))
+        {
+          pipeline[QStringLiteral("api")] = detail::GraphicsAPIName(props.pipelineType);
+
+          QJsonArray shaders;
+          for(int s = 0; s < int(ShaderStage::Count); s++)
+          {
+            const ShaderStage stage = ShaderStage(s);
+            const ResourceId shader = pipe.GetShader(stage);
+            if(shader == ResourceId())
+              continue;
+
+            const QString entry = FromRdcStr(pipe.GetShaderEntryPoint(stage));
+            QString name = resourceNames.value(ResIdValue(shader));
+            if(name.isEmpty())
+              name = entry.isEmpty() ? QStringLiteral("unknown") : entry;
+
+            QJsonObject sh;
+            sh[QStringLiteral("stage")] = HotStageName(stage);
+            sh[QStringLiteral("name")] = name;
+            sh[QStringLiteral("resourceId")] = ResourceIdToString(shader);
+            shaders.push_back(sh);
+          }
+          pipeline[QStringLiteral("shaders")] = shaders;
+
+          QJsonArray targets;
+          for(const Descriptor &d : pipe.GetOutputTargets())
+          {
+            if(d.resource == ResourceId())
+              continue;
+
+            const HotTexInfo info = textures.value(ResIdValue(d.resource));
+            QJsonObject rt;
+            rt[QStringLiteral("resourceId")] = ResourceIdToString(d.resource);
+            rt[QStringLiteral("name")] = info.name.isEmpty() ? ResourceIdToString(d.resource) : info.name;
+            rt[QStringLiteral("format")] = info.format;
+            rt[QStringLiteral("width")] = double(info.width);
+            rt[QStringLiteral("height")] = double(info.height);
+            targets.push_back(rt);
+          }
+          pipeline[QStringLiteral("renderTargets")] = targets;
+
+          const Descriptor depth = pipe.GetDepthTarget();
+          if(depth.resource != ResourceId())
+          {
+            const HotTexInfo info = textures.value(ResIdValue(depth.resource));
+            QJsonObject dt;
+            dt[QStringLiteral("resourceId")] = ResourceIdToString(depth.resource);
+            dt[QStringLiteral("name")] = info.name.isEmpty() ? ResourceIdToString(depth.resource) : info.name;
+            dt[QStringLiteral("format")] = info.format;
+            dt[QStringLiteral("width")] = double(info.width);
+            dt[QStringLiteral("height")] = double(info.height);
+            pipeline[QStringLiteral("depthTarget")] = dt;
+          }
+          else
+          {
+            pipeline[QStringLiteral("depthTarget")] = QJsonValue::Null;
+          }
+
+          j[QStringLiteral("pipelineState")] = pipeline;
+        }
+
+        // Resource counts come from the descriptors actually accessed at the
+        // event, so they are facts (Confirmed) rather than reflection guesses.
+        if(want("resourceCounts"))
+        {
+          uint32_t sampledTextures = 0, storageTextures = 0, buffers = 0, samplers = 0,
+                   constantBuffers = 0;
+
+          for(const UsedDescriptor &ud : pipe.GetAllUsedDescriptors(true))
+          {
+            const Descriptor &d = ud.descriptor;
+            if(d.resource == ResourceId())
+              continue;
+
+            switch(d.type)
+            {
+              case DescriptorType::ConstantBuffer: constantBuffers++; break;
+              case DescriptorType::Sampler: samplers++; break;
+              case DescriptorType::ImageSampler: sampledTextures++; samplers++; break;
+              case DescriptorType::Image: sampledTextures++; break;
+              case DescriptorType::ReadWriteImage:
+              case DescriptorType::ReadWriteTypedBuffer: storageTextures++; break;
+              case DescriptorType::Buffer:
+              case DescriptorType::TypedBuffer:
+              case DescriptorType::ReadWriteBuffer:
+              case DescriptorType::AccelerationStructure: buffers++; break;
+              default: break;
+            }
+          }
+
+          QJsonObject counts;
+          counts[QStringLiteral("sampledTextures")] = double(sampledTextures);
+          counts[QStringLiteral("storageTextures")] = double(storageTextures);
+          counts[QStringLiteral("buffers")] = double(buffers);
+          counts[QStringLiteral("samplers")] = double(samplers);
+          counts[QStringLiteral("constantBuffers")] = double(constantBuffers);
+          counts[QStringLiteral("confidence")] = ConfidenceName(Confidence::Confirmed);
+          j[QStringLiteral("resourceCounts")] = counts;
+        }
+
+        // Per-stage shader summary: what each stage declares, plus its evidence.
+        if(includeShaderInfo && want("shaderInfo"))
+        {
+          QJsonArray info;
+          for(int s = 0; s < int(ShaderStage::Count); s++)
+          {
+            const ShaderStage stage = ShaderStage(s);
+            const ResourceId shader = pipe.GetShader(stage);
+            if(shader == ResourceId())
+              continue;
+
+            const ShaderReflection *refl = pipe.GetShaderReflection(stage);
+
+            // Split the reflection's declared resources into sampled textures,
+            // buffers, read/write payloads and samplers, so the per-stage summary
+            // matches the plugin's texture/buffer/constant-buffer breakdown.
+            uint32_t roTextures = 0, roBuffers = 0, rwCount = 0, cbCount = 0, sampCount = 0;
+            if(refl != NULL)
+            {
+              for(const ShaderResource &r : refl->readOnlyResources)
+              {
+                if(r.textureType == TextureType::Buffer)
+                  roBuffers++;
+                else
+                  roTextures++;
+              }
+              rwCount = (uint32_t)refl->readWriteResources.size();
+              cbCount = (uint32_t)refl->constantBlocks.size();
+              sampCount = (uint32_t)refl->samplers.size();
+            }
+
+            const QString entry = FromRdcStr(pipe.GetShaderEntryPoint(stage));
+            QString name = resourceNames.value(ResIdValue(shader));
+            if(name.isEmpty())
+              name = entry.isEmpty() ? QStringLiteral("unknown") : entry;
+
+            QJsonObject sh;
+            sh[QStringLiteral("stage")] = HotStageName(stage);
+            sh[QStringLiteral("name")] = name;
+            sh[QStringLiteral("resourceId")] = ResourceIdToString(shader);
+            sh[QStringLiteral("boundTextures")] = double(roTextures);
+            sh[QStringLiteral("boundStorageTextures")] = double(rwCount);
+            sh[QStringLiteral("boundBuffers")] = double(roBuffers);
+            sh[QStringLiteral("boundConstantBuffers")] = double(cbCount);
+            sh[QStringLiteral("boundSamplers")] = double(sampCount);
+            sh[QStringLiteral("confidence")] =
+                ConfidenceName(refl != NULL ? Confidence::Confirmed : Confidence::Inferred);
+            sh[QStringLiteral("evidence")] =
+                EvidenceToJson(ShaderEvidence(shader, HotStageName(stage), name));
+            info.push_back(sh);
+          }
+          j[QStringLiteral("shaderInfo")] = info;
+        }
+
+        // ---- mesh data (optional) ------------------------------------------
+        if(includeMeshData && want("meshData"))
+        {
+          MeshFormat mf = replay.GetPostVSData(0, 0, MeshDataStage::VSIn);
+
+          if(action != NULL)
+          {
+            if(mf.numIndices == 0)
+              mf.numIndices = action->numIndices;
+            if(mf.baseVertex == 0)
+              mf.baseVertex = action->baseVertex;
+            if(mf.indexResourceId == ResourceId() && (action->flags & ActionFlags::Indexed))
+            {
+              const BoundVBuffer ib = pipe.GetIBuffer();
+              mf.indexResourceId = ib.resourceId;
+              mf.indexByteOffset = ib.byteOffset;
+              mf.indexByteStride = ib.byteStride;
+            }
+          }
+
+          QJsonObject mesh;
+          mesh[QStringLiteral("topology")] = detail::TopologyName(pipe.GetPrimitiveTopology());
+          mesh[QStringLiteral("indexCount")] = double(mf.numIndices);
+
+          // Vertex count: the highest referenced index + 1 when indexed, else the
+          // number of indices (a non-indexed draw's vertices are drawn in order).
+          uint32_t vertexCount = mf.numIndices;
+          const bool indexed = mf.indexResourceId != ResourceId() &&
+                               mf.indexByteStride != 0 && mf.indexByteStride <= 4;
+          if(indexed && mf.numIndices > 0)
+          {
+            const uint32_t probe = qMin(mf.numIndices, 4096u);
+            const bytebuf idx = replay.GetBufferData(mf.indexResourceId, mf.indexByteOffset,
+                                                     uint64_t(probe) * uint64_t(mf.indexByteStride));
+            const byte *p = idx.data();
+            uint32_t maxIdx = 0;
+            for(uint32_t i = 0; i < probe; i++)
+            {
+              uint32_t v = 0;
+              if(mf.indexByteStride == 1)
+                v = uint32_t(p[i]);
+              else if(mf.indexByteStride == 2)
+              {
+                uint16_t h = 0;
+                memcpy(&h, p + uint64_t(i) * 2, 2);
+                v = h;
+              }
+              else
+              {
+                memcpy(&v, p + uint64_t(i) * 4, 4);
+              }
+              maxIdx = qMax(maxIdx, v);
+            }
+            vertexCount = maxIdx + 1u;
+          }
+          mesh[QStringLiteral("vertexCount")] = double(vertexCount);
+
+          QJsonArray attrs;
+          for(const VertexInputAttribute &a : pipe.GetVertexInputs())
+          {
+            QJsonObject o;
+            o[QStringLiteral("name")] = FromRdcStr(a.name);
+            o[QStringLiteral("semantic")] = FromRdcStr(a.name);
+            o[QStringLiteral("format")] = detail::ResourceFormatString(a.format);
+            attrs.push_back(o);
+          }
+          mesh[QStringLiteral("attributes")] = attrs;
+
+          j[QStringLiteral("meshData")] = mesh;
+        }
+
+        if(want("evidence"))
+        {
+          QJsonArray evidence;
+          if(action != NULL)
+            evidence.push_back(EvidenceToJson(EventEvidence(eventId, FromRdcStr(action->GetName(
+                                                                  replay.GetStructuredFile())))));
+          if(haveDuration)
+            evidence.push_back(EvidenceToJson(TimingEvidence(eventId, durationUs)));
+          j[QStringLiteral("evidence")] = evidence;
+        }
+
+        return ToolResult::Success(j);
+      });
+}
+
+// ---- P1-3 pass graph, producer/consumer tracking and reverse search ------
+
+namespace
+{
+// Rebuild a ResourceId from its raw numeric value (the inverse of ResIdValue).
+ResourceId ResourceIdFromValue(uint64_t v)
+{
+  ResourceId id;
+  memcpy(&id, &v, sizeof(v));
+  return id;
+}
+
+bool VecHasId(const QVector<quint64> &v, quint64 id)
+{
+  for(quint64 x : v)
+  {
+    if(x == id)
+      return true;
+  }
+  return false;
+}
+
+void AddUniqueId(QVector<quint64> &v, quint64 id)
+{
+  if(id != 0 && !VecHasId(v, id))
+    v.push_back(id);
+}
+
+void AddUniqueShader(QVector<ShaderRef> &v, const ShaderRef &s)
+{
+  for(const ShaderRef &x : v)
+  {
+    if(x.id == s.id && x.stage == s.stage)
+      return;
+  }
+  v.push_back(s);
+}
+
+// Every leaf (effect) action underneath `action`, in pre-order.
+void CollectLeavesRecursive(const ActionDescription &action,
+                            rdcarray<const ActionDescription *> &out)
+{
+  if(action.children.empty())
+  {
+    out.push_back(&action);
+    return;
+  }
+  for(const ActionDescription &c : action.children)
+    CollectLeavesRecursive(c, out);
+}
+
+void CollectLeavesInList(const rdcarray<ActionDescription> &list,
+                         rdcarray<const ActionDescription *> &out)
+{
+  for(const ActionDescription &a : list)
+    CollectLeavesRecursive(a, out);
+}
+
+// First and last leaf event ids of a subtree: its contiguous event range.
+uint32_t PassFirstLeaf(const ActionDescription &a)
+{
+  if(a.children.empty())
+    return a.eventId;
+  return PassFirstLeaf(a.children[0]);
+}
+
+uint32_t PassLastLeaf(const ActionDescription &a)
+{
+  if(a.children.empty())
+    return a.eventId;
+  return PassLastLeaf(a.children[a.children.size() - 1]);
+}
+
+// Number of leaf actions (effects) in a subtree.
+uint32_t CountLeavesRecursive(const ActionDescription &a)
+{
+  if(a.children.empty())
+    return 1;
+  uint32_t n = 0;
+  for(const ActionDescription &c : a.children)
+    n += CountLeavesRecursive(c);
+  return n;
+}
+
+// Pass id, mirroring the plugin: <name with whitespace -> _>:<start>-<end>.
+QString BuildPassId(const QString &name, uint32_t start, uint32_t end)
+{
+  QString safe = name.isEmpty() ? QStringLiteral("pass") : name;
+  safe.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral("_"));
+  return QStringLiteral("%1:%2-%3").arg(safe).arg(start).arg(end);
+}
+
+// Per-leaf facts gathered from the pipeline state, reused by the reverse index
+// and the pass-resource collector.
+struct LeafFacts
+{
+  uint32_t eventId = 0;
+  QString name;
+  QVector<quint64> renderTargetIds;   // color + depth outputs (writes)
+  QVector<quint64> sampledIds;        // read-only + read/write resources
+  QVector<quint64> resourceIds;       // everything the event touches
+  QVector<ShaderRef> shaders;         // bound shader stages
+};
+
+// Read the pipeline state at one leaf event. A failure (SetFrameEvent throwing
+// for an event without pipeline data) is swallowed so one bad event does not
+// abort the whole scan - the plugin did the same with try/catch per event.
+bool ReadLeafFacts(IReplayController &replay, const ActionDescription &a, const SDFile &sdfile,
+                   LeafFacts &facts)
+{
+  facts.eventId = a.eventId;
+  facts.name = FromRdcStr(a.GetName(sdfile));
+
+  try
+  {
+    replay.SetFrameEvent(a.eventId, false);
+
+    const PipeState &pipe = replay.GetPipelineState();
+
+    for(int s = 0; s < int(ShaderStage::Count); s++)
+    {
+      const ShaderStage stage = ShaderStage(s);
+      const ResourceId shader = pipe.GetShader(stage);
+      if(shader == ResourceId())
+        continue;
+
+      ShaderRef sr;
+      sr.id = shader;
+      sr.stage = HotStageName(stage);
+      sr.name = FromRdcStr(pipe.GetShaderEntryPoint(stage));
+      AddUniqueShader(facts.shaders, sr);
+
+      AddUniqueId(facts.resourceIds, ResIdValue(shader));
+    }
+
+    for(const Descriptor &d : pipe.GetOutputTargets())
+    {
+      AddUniqueId(facts.renderTargetIds, ResIdValue(d.resource));
+      AddUniqueId(facts.resourceIds, ResIdValue(d.resource));
+    }
+
+    const quint64 depth = ResIdValue(pipe.GetDepthTarget().resource);
+    AddUniqueId(facts.renderTargetIds, depth);
+    AddUniqueId(facts.resourceIds, depth);
+
+    for(int s = 0; s < int(ShaderStage::Count); s++)
+    {
+      const ShaderStage stage = ShaderStage(s);
+
+      for(const UsedDescriptor &ud : pipe.GetReadOnlyResources(stage, true))
+      {
+        const quint64 v = ResIdValue(ud.descriptor.resource);
+        AddUniqueId(facts.sampledIds, v);
+        AddUniqueId(facts.resourceIds, v);
+      }
+      for(const UsedDescriptor &ud : pipe.GetReadWriteResources(stage, true))
+      {
+        const quint64 v = ResIdValue(ud.descriptor.resource);
+        AddUniqueId(facts.sampledIds, v);
+        AddUniqueId(facts.resourceIds, v);
+      }
+    }
+  }
+  catch(...)
+  {
+    return false;
+  }
+
+  return true;
+}
+
+// Per-event GPU durations in microseconds, empty when the API does not expose
+// the EventGPUDuration counter.
+QHash<quint32, double> FetchEventTimings(IReplayController &replay)
+{
+  QHash<quint32, double> timings;
+
+  for(const GPUCounter &c : replay.EnumerateCounters())
+  {
+    if(c != GPUCounter::EventGPUDuration)
+      continue;
+
+    for(const CounterResult &r : replay.FetchCounters(rdcarray<GPUCounter>{GPUCounter::EventGPUDuration}))
+    {
+      // A negative value means "not measured for this event".
+      if(r.value.d >= 0.0)
+        timings.insert(r.eventId, r.value.d * 1000000.0);
+    }
+    break;
+  }
+
+  return timings;
+}
+}    // namespace
+
+ToolResult QueryAdapter::GetPassGraph(bool includeResources, CallContext &call,
+                                      const QStringList &fields)
+{
+  return DispatchBlock("renderdoc_getPassGraph", call,
+                       [includeResources, fields](IReplayController &replay) -> ToolResult {
+    auto want = [&](const char *n) {
+      return fields.isEmpty() || fields.contains(QString::fromLatin1(n));
+    };
+
+    const SDFile &sdfile = replay.GetStructuredFile();
+    const rdcarray<ActionDescription> &roots = replay.GetRootActions();
+
+    const QHash<quint32, double> timings = FetchEventTimings(replay);
+
+    PassGraph graph;
+
+    // One pass per top-level action, matching the plugin: a top-level marker
+    // with children becomes a pass spanning its whole subtree; a lone top-level
+    // draw call becomes a one-event pass.
+    for(const ActionDescription &root : roots)
+    {
+      const bool hasChildren = !root.children.empty();
+
+      PassInfo pass;
+      pass.name = FromRdcStr(root.GetName(sdfile));
+      pass.eventIdStart = hasChildren ? PassFirstLeaf(root) : root.eventId;
+      pass.eventIdEnd = hasChildren ? PassLastLeaf(root) : root.eventId;
+      pass.id = BuildPassId(pass.name, pass.eventIdStart, pass.eventIdEnd);
+      pass.drawCount = hasChildren ? CountLeavesRecursive(root) : 1;
+      pass.confidence = Confidence::Inferred;
+
+      rdcarray<const ActionDescription *> leaves;
+      CollectLeavesRecursive(root, leaves);
+
+      QVector<quint64> rtIds, sampledIds;
+      double durationUs = 0.0;
+
+      for(const ActionDescription *leaf : leaves)
+      {
+        durationUs += timings.value(leaf->eventId, 0.0);
+
+        if(!includeResources)
+          continue;
+
+        LeafFacts facts;
+        if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
+          continue;
+
+        for(quint64 v : facts.renderTargetIds)
+          AddUniqueId(rtIds, v);
+        for(quint64 v : facts.sampledIds)
+          AddUniqueId(sampledIds, v);
+        for(const ShaderRef &sr : facts.shaders)
+          AddUniqueShader(pass.shaders, sr);
+      }
+
+      pass.durationUs = durationUs;
+
+      if(includeResources)
+      {
+        for(quint64 v : rtIds)
+          pass.renderTargets.push_back(ResourceIdFromValue(v));
+        for(quint64 v : sampledIds)
+          pass.sampledTextures.push_back(ResourceIdFromValue(v));
+      }
+
+      graph.totalDurationUs += durationUs;
+      graph.passes.push_back(pass);
+    }
+
+    // Producer -> consumer edges: a pass that samples a texture rendered by an
+    // earlier pass. The producer map is keyed by raw resource id.
+    if(includeResources)
+    {
+      QHash<quint64, QVector<int>> producers;   // resource id -> pass indices that write it
+      for(int i = 0; i < graph.passes.size(); i++)
+      {
+        for(const ResourceId &rt : graph.passes[i].renderTargets)
+          producers[ResIdValue(rt)].push_back(i);
+      }
+
+      for(int to = 0; to < graph.passes.size(); to++)
+      {
+        const PassInfo &toPass = graph.passes[to];
+        for(const ResourceId &tex : toPass.sampledTextures)
+        {
+          const QVector<int> froms = producers.value(ResIdValue(tex));
+          for(int from : froms)
+          {
+            if(from == to)
+              continue;
+
+            const PassInfo &fromPass = graph.passes[from];
+            PassGraphEdge e;
+            e.fromPassId = fromPass.id;
+            e.fromPassName = fromPass.name;
+            e.toPassId = toPass.id;
+            e.toPassName = toPass.name;
+            e.resourceId = tex;
+            e.usage = QStringLiteral("sampledFromRenderTarget");
+            e.confidence = Confidence::Inferred;
+            graph.edges.push_back(e);
+          }
+        }
+      }
+    }
+
+    QJsonObject j = PassGraphToJson(graph);
+    j[QStringLiteral("available")] = true;
+
+    if(!fields.isEmpty())
+    {
+      QJsonObject filtered;
+      for(auto it = j.constBegin(); it != j.constEnd(); ++it)
+      {
+        if(it.key() == QStringLiteral("snapshot") || want(it.key().toUtf8().constData()))
+          filtered[it.key()] = it.value();
+      }
+      j = filtered;
+    }
+
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
+}
+
+ToolResult QueryAdapter::FindDrawsByShader(const QString &term, CallContext &call,
+                                           const QStringList &fields)
+{
+  // Resource display names are materialised on the UI thread once, then captured
+  // by value so the replay lambda never touches ICaptureContext.
+  const QHash<quint64, QString> names =
+      ReadOnUIThread<QHash<quint64, QString>>([this]() -> QHash<quint64, QString> {
+    QHash<quint64, QString> map;
+    for(const ResourceDescription &r : m_Ctx->GetResources())
+    {
+      const QString name = !r.name.empty() ? FromRdcStr(r.name)
+                                           : (!r.autogeneratedName.empty()
+                                                  ? FromRdcStr(r.autogeneratedName)
+                                                  : QString());
+      if(!name.isEmpty())
+        map.insert(ResIdValue(r.resourceId), name);
+    }
+    return map;
+  });
+
+  return DispatchBlock("renderdoc_findDrawsByShader", call,
+                       [term, names, fields](IReplayController &replay) -> ToolResult {
+    const QString needle = term.toLower();
+
+    ReverseSearchResult result;
+    result.query = QStringLiteral("shader");
+    result.term = term;
+
+    const SDFile &sdfile = replay.GetStructuredFile();
+    rdcarray<const ActionDescription *> leaves;
+    CollectLeavesInList(replay.GetRootActions(), leaves);
+
+    for(const ActionDescription *leaf : leaves)
+    {
+      LeafFacts facts;
+      if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
+        continue;
+
+      result.scannedEventCount++;
+
+      ReverseSearchHit hit;
+      hit.eventId = facts.eventId;
+      hit.name = facts.name;
+
+      for(const ShaderRef &sr : facts.shaders)
+      {
+        const QString display = names.value(ResIdValue(sr.id));
+        const bool match = (!sr.name.isEmpty() && sr.name.toLower().contains(needle)) ||
+                           (!display.isEmpty() && display.toLower().contains(needle));
+        if(!match)
+          continue;
+
+        ResourceAccess access;
+        access.id = sr.id;
+        access.name = display.isEmpty() ? sr.name : display;
+        access.usage = ResourceUsage::Unknown;
+        access.eventId = facts.eventId;
+        hit.resources.push_back(access);
+      }
+
+      if(!hit.resources.isEmpty())
+      {
+        hit.confidence = Confidence::Confirmed;
+        result.hits.push_back(hit);
+      }
+    }
+
+    std::sort(result.hits.begin(), result.hits.end(),
+              [](const ReverseSearchHit &l, const ReverseSearchHit &r) {
+                return l.eventId < r.eventId;
+              });
+
+    QJsonObject j = ReverseSearchResultToJson(result);
+    if(!fields.isEmpty())
+    {
+      QJsonObject filtered;
+      for(auto it = j.constBegin(); it != j.constEnd(); ++it)
+      {
+        if(it.key() == QStringLiteral("snapshot") ||
+           fields.contains(it.key()))
+          filtered[it.key()] = it.value();
+      }
+      j = filtered;
+    }
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
+}
+
+ToolResult QueryAdapter::FindDrawsByTexture(const QString &term, CallContext &call,
+                                            const QStringList &fields)
+{
+  const QHash<quint64, QString> names =
+      ReadOnUIThread<QHash<quint64, QString>>([this]() -> QHash<quint64, QString> {
+    QHash<quint64, QString> map;
+    for(const ResourceDescription &r : m_Ctx->GetResources())
+    {
+      const QString name = !r.name.empty() ? FromRdcStr(r.name)
+                                           : (!r.autogeneratedName.empty()
+                                                  ? FromRdcStr(r.autogeneratedName)
+                                                  : QString());
+      if(!name.isEmpty())
+        map.insert(ResIdValue(r.resourceId), name);
+    }
+    return map;
+  });
+
+  return DispatchBlock("renderdoc_findDrawsByTexture", call,
+                       [term, names, fields](IReplayController &replay) -> ToolResult {
+    const QString needle = term.toLower();
+
+    ReverseSearchResult result;
+    result.query = QStringLiteral("texture");
+    result.term = term;
+
+    const SDFile &sdfile = replay.GetStructuredFile();
+    rdcarray<const ActionDescription *> leaves;
+    CollectLeavesInList(replay.GetRootActions(), leaves);
+
+    for(const ActionDescription *leaf : leaves)
+    {
+      LeafFacts facts;
+      if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
+        continue;
+
+      result.scannedEventCount++;
+
+      ReverseSearchHit hit;
+      hit.eventId = facts.eventId;
+      hit.name = facts.name;
+
+      for(quint64 v : facts.resourceIds)
+      {
+        const QString display = names.value(v);
+        if(display.isEmpty() || !display.toLower().contains(needle))
+          continue;
+
+        ResourceAccess access;
+        access.id = ResourceIdFromValue(v);
+        access.name = display;
+        access.usage = ResourceUsage::Sampled;
+        access.eventId = facts.eventId;
+        hit.resources.push_back(access);
+      }
+
+      if(!hit.resources.isEmpty())
+      {
+        hit.resource = hit.resources[0].id;
+        hit.confidence = Confidence::Confirmed;
+        result.hits.push_back(hit);
+      }
+    }
+
+    std::sort(result.hits.begin(), result.hits.end(),
+              [](const ReverseSearchHit &l, const ReverseSearchHit &r) {
+                return l.eventId < r.eventId;
+              });
+
+    QJsonObject j = ReverseSearchResultToJson(result);
+    if(!fields.isEmpty())
+    {
+      QJsonObject filtered;
+      for(auto it = j.constBegin(); it != j.constEnd(); ++it)
+      {
+        if(it.key() == QStringLiteral("snapshot") || fields.contains(it.key()))
+          filtered[it.key()] = it.value();
+      }
+      j = filtered;
+    }
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
+}
+
+ToolResult QueryAdapter::FindDrawsByResourceId(ResourceId id, CallContext &call,
+                                               const QStringList &fields)
+{
+  const quint64 want = ResIdValue(id);
+
+  const QHash<quint64, QString> names =
+      ReadOnUIThread<QHash<quint64, QString>>([this]() -> QHash<quint64, QString> {
+    QHash<quint64, QString> map;
+    for(const ResourceDescription &r : m_Ctx->GetResources())
+    {
+      const QString name = !r.name.empty() ? FromRdcStr(r.name)
+                                           : (!r.autogeneratedName.empty()
+                                                  ? FromRdcStr(r.autogeneratedName)
+                                                  : QString());
+      if(!name.isEmpty())
+        map.insert(ResIdValue(r.resourceId), name);
+    }
+    return map;
+  });
+
+  return DispatchBlock("renderdoc_findDrawsByResourceId", call,
+                       [want, id, names, fields](IReplayController &replay) -> ToolResult {
+    ReverseSearchResult result;
+    result.query = QStringLiteral("resource");
+    result.term = ResourceIdToString(id);
+
+    const SDFile &sdfile = replay.GetStructuredFile();
+    rdcarray<const ActionDescription *> leaves;
+    CollectLeavesInList(replay.GetRootActions(), leaves);
+
+    for(const ActionDescription *leaf : leaves)
+    {
+      LeafFacts facts;
+      if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
+        continue;
+
+      result.scannedEventCount++;
+
+      if(!VecHasId(facts.resourceIds, want))
+        continue;
+
+      ReverseSearchHit hit;
+      hit.eventId = facts.eventId;
+      hit.name = facts.name;
+      hit.resource = id;
+      hit.confidence = Confidence::Confirmed;
+
+      ResourceAccess access;
+      access.id = id;
+      access.name = names.value(want);
+      access.eventId = facts.eventId;
+      if(VecHasId(facts.renderTargetIds, want))
+        access.usage = ResourceUsage::RenderTarget;
+      else if(VecHasId(facts.sampledIds, want))
+        access.usage = ResourceUsage::Sampled;
+      hit.resources.push_back(access);
+
+      result.hits.push_back(hit);
+    }
+
+    std::sort(result.hits.begin(), result.hits.end(),
+              [](const ReverseSearchHit &l, const ReverseSearchHit &r) {
+                return l.eventId < r.eventId;
+              });
+
+    QJsonObject j = ReverseSearchResultToJson(result);
+    j[QStringLiteral("resourceId")] = ResourceIdToString(id);
+
+    if(!fields.isEmpty())
+    {
+      QJsonObject filtered;
+      for(auto it = j.constBegin(); it != j.constEnd(); ++it)
+      {
+        if(it.key() == QStringLiteral("snapshot") || fields.contains(it.key()))
+          filtered[it.key()] = it.value();
+      }
+      j = filtered;
+    }
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
+}
+
+ToolResult QueryAdapter::TraceResourceUsage(ResourceId id, CallContext &call,
+                                            const QStringList &fields)
+{
+  const quint64 want = ResIdValue(id);
+
+  const QHash<quint64, QString> names =
+      ReadOnUIThread<QHash<quint64, QString>>([this]() -> QHash<quint64, QString> {
+    QHash<quint64, QString> map;
+    for(const ResourceDescription &r : m_Ctx->GetResources())
+    {
+      const QString name = !r.name.empty() ? FromRdcStr(r.name)
+                                           : (!r.autogeneratedName.empty()
+                                                  ? FromRdcStr(r.autogeneratedName)
+                                                  : QString());
+      if(!name.isEmpty())
+        map.insert(ResIdValue(r.resourceId), name);
+    }
+    return map;
+  });
+
+  return DispatchBlock("renderdoc_traceResourceUsage", call,
+                       [want, id, names](IReplayController &replay) -> ToolResult {
+    const SDFile &sdfile = replay.GetStructuredFile();
+
+    rdcarray<const ActionDescription *> leaves;
+    CollectLeavesInList(replay.GetRootActions(), leaves);
+
+    QJsonArray producers;    // events that write the resource
+    QJsonArray consumers;    // events that read/sample the resource
+    QJsonArray accesses;
+
+    for(const ActionDescription *leaf : leaves)
+    {
+      LeafFacts facts;
+      if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
+        continue;
+
+      const bool renders = VecHasId(facts.renderTargetIds, want);
+      const bool samples = VecHasId(facts.sampledIds, want);
+      if(!renders && !samples)
+        continue;
+
+      const QString name = names.value(want);
+      ResourceAccess access;
+      access.id = id;
+      access.name = name;
+      access.eventId = facts.eventId;
+      access.usage = renders ? ResourceUsage::RenderTarget : ResourceUsage::Sampled;
+      accesses.append(ResourceAccessToJson(access));
+
+      if(renders)
+      {
+        QJsonObject e;
+        e[QStringLiteral("eventId")] = double(facts.eventId);
+        e[QStringLiteral("name")] = facts.name;
+        e[QStringLiteral("usage")] = ResourceUsageName(ResourceUsage::RenderTarget);
+        e[QStringLiteral("confidence")] = ConfidenceName(Confidence::Confirmed);
+        producers.append(e);
+      }
+      if(samples)
+      {
+        QJsonObject e;
+        e[QStringLiteral("eventId")] = double(facts.eventId);
+        e[QStringLiteral("name")] = facts.name;
+        e[QStringLiteral("usage")] = ResourceUsageName(ResourceUsage::Sampled);
+        e[QStringLiteral("confidence")] = ConfidenceName(Confidence::Confirmed);
+        consumers.append(e);
+      }
+    }
+
+    QJsonObject j;
+    j[QStringLiteral("available")] = true;
+    j[QStringLiteral("resourceId")] = ResourceIdToString(id);
+    j[QStringLiteral("name")] = names.value(want);
+    j[QStringLiteral("producerEvents")] = producers;
+    j[QStringLiteral("consumerEvents")] = consumers;
+    j[QStringLiteral("producerCount")] = producers.size();
+    j[QStringLiteral("consumerCount")] = consumers.size();
+    j[QStringLiteral("accesses")] = accesses;
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
+}
+
+//
+// ---- P1-4 resource memory audit, lifetimes and heuristics -----------------
+//
+
+namespace
+{
+// The mip count a texture would have if its whole chain were allocated.
+uint32_t IdealMipCount(uint32_t w, uint32_t h, uint32_t d)
+{
+  uint32_t m = w > h ? w : h;
+  if(d > m)
+    m = d;
+  uint32_t count = 1;
+  while(m > 1)
+  {
+    m >>= 1;
+    count++;
+  }
+  return count;
+}
+
+// A copy of the resource inventory that is safe to hand to the replay thread:
+// the name, type and creation-time size are read once on the UI thread.
+struct ResourceLite
+{
+  quint64 id = 0;
+  QString name;
+  QString type;
+  uint64_t byteSize = 0;
+};
+
+QVector<ResourceLite> SnapshotResources(ICaptureContext *ctx)
+{
+  QVector<ResourceLite> out;
+
+  QHash<quint64, uint64_t> sizes;
+  for(const TextureDescription &t : ctx->GetTextures())
+    sizes.insert(ResIdValue(t.resourceId), t.byteSize);
+  for(const BufferDescription &b : ctx->GetBuffers())
+    sizes.insert(ResIdValue(b.resourceId), b.length);
+
+  for(const ResourceDescription &r : ctx->GetResources())
+  {
+    ResourceLite lite;
+    lite.id = ResIdValue(r.resourceId);
+    lite.name = !r.name.empty() ? FromRdcStr(r.name)
+                                : (!r.autogeneratedName.empty() ? FromRdcStr(r.autogeneratedName)
+                                                                : QString());
+    lite.type = detail::ResourceTypeName(r.type);
+    lite.byteSize = sizes.value(lite.id, 0);
+    out.append(lite);
+  }
+  return out;
+}
+
+// Applies the optional caller-supplied field projection, always keeping the
+// `snapshot` sibling so clients can still resolve the capture context.
+QJsonObject FilterFields(const QJsonObject &j, const QStringList &fields)
+{
+  if(fields.isEmpty())
+    return j;
+  QJsonObject filtered;
+  for(auto it = j.constBegin(); it != j.constEnd(); ++it)
+  {
+    if(it.key() == QStringLiteral("snapshot") || fields.contains(it.key()))
+      filtered[it.key()] = it.value();
+  }
+  return filtered;
+}
+// Display name for a shader stage object in a pipeline snapshot: prefer the
+// bound shader's resource name, fall back to the entry point. Returns an empty
+// string when the stage is absent. Used only for the human-readable shader
+// change list; the raw JSON is always carried in the field diff.
+static QString PipelineStageDisplayName(const QJsonObject &shaders, const QString &stage)
+{
+  const QJsonObject s = shaders.value(stage).toObject();
+  if(s.isEmpty())
+    return QString();
+
+  const QJsonObject shader = s.value(QStringLiteral("shader")).toObject();
+  const QString name = shader.value(QStringLiteral("name")).toString();
+  if(!name.isEmpty() && name != QStringLiteral("ResourceId::0"))
+    return name;
+
+  return s.value(QStringLiteral("entryPoint")).toString();
+}
+
+// Recursively collect every event id in the action tree. SetFrameEvent() returns
+// void, so to reject an unknown event id up front we walk the tree ourselves.
+static void CollectEventIdsRecursive(const rdcarray<ActionDescription> &list, QSet<quint32> &out)
+{
+  for(const ActionDescription &a : list)
+  {
+    out.insert(a.eventId);
+    CollectEventIdsRecursive(a.children, out);
+  }
+}
+
+// Flatten a snapshot into dotted paths (leaf values only). A scalar at the root
+// would land at key "", which never happens for the pipeline snapshot object and
+// is dropped defensively.
+static void FlattenSnapshotJson(const QJsonValue &value, const QString &prefix,
+                                QVector<QPair<QString, QJsonValue>> &out)
+{
+  if(value.isObject())
+  {
+    const QJsonObject o = value.toObject();
+    if(o.isEmpty())
+    {
+      if(!prefix.isEmpty())
+        out.push_back(qMakePair(prefix, value));
+      return;
+    }
+    for(auto it = o.constBegin(); it != o.constEnd(); ++it)
+    {
+      const QString key = prefix.isEmpty() ? it.key() : (prefix + QString::fromUtf8(".") + it.key());
+      FlattenSnapshotJson(it.value(), key, out);
+    }
+    return;
+  }
+
+  if(value.isArray())
+  {
+    const QJsonArray a = value.toArray();
+    if(a.isEmpty())
+    {
+      if(!prefix.isEmpty())
+        out.push_back(qMakePair(prefix, value));
+      return;
+    }
+    for(int i = 0; i < a.size(); i++)
+      FlattenSnapshotJson(a[i], prefix + QString::fromUtf8(".") + QString::number(i), out);
+    return;
+  }
+
+  if(!prefix.isEmpty())
+    out.push_back(qMakePair(prefix, value));
+}
+}    // namespace
+
+// Renders one snapshot value the way the before/after columns should read. Kept
+// file-local (rather than in the model) because it is a presentation detail of
+// the diff, not part of the shared analysis vocabulary.
+static QString SnapshotValueText(const QJsonValue &v)
+{
+  if(v.isNull() || v.isUndefined())
+    return QString::fromUtf8("none");
+  if(v.isBool())
+    return v.toBool() ? QString::fromUtf8("true") : QString::fromUtf8("false");
+  if(v.isDouble())
+    return QString::number(v.toDouble());
+  if(v.isString())
+    return v.toString();
+  if(v.isArray())
+    return QString::fromUtf8(QJsonDocument(v.toArray()).toJson(QJsonDocument::Compact));
+  if(v.isObject())
+    return QString::fromUtf8(QJsonDocument(v.toObject()).toJson(QJsonDocument::Compact));
+  return QString();
+}
+
+ToolResult QueryAdapter::PipelineSnapshotAt(uint32_t eventId, CallContext &call,
+                                            const QStringList &fields)
+{
+  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+  if(m_Ctx->IsCaptureLoading())
+    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+
+  return DispatchBlock("renderdoc_getPipelineStateAtEvent", call,
+                       [eventId, fields](IReplayController &replay) -> ToolResult {
+    QSet<quint32> eventIds;
+    CollectEventIdsRecursive(replay.GetRootActions(), eventIds);
+    if(!eventIds.contains(eventId))
+      return ToolResult::Failure(
+          Error(ErrorCode::InvalidParams,
+                QString::fromUtf8("no event with id %1 in this capture").arg(eventId)));
+
+    replay.SetFrameEvent(eventId, false);
+
+    const QJsonObject state = PipelineStateToJson(replay);
+    if(!state.value(QStringLiteral("loaded")).toBool())
+      return ToolResult::Failure(
+          Error(ErrorCode::ReplayUnavailable,
+                QString::fromUtf8("no pipeline state available at event %1").arg(eventId)));
+
+    QJsonObject out = FilterFields(state, fields);
+    out[QStringLiteral("eventId")] = double(eventId);
+    out[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(out);
+  });
+}
+
+ToolResult QueryAdapter::DiffPipelineState(uint32_t eventIdA, uint32_t eventIdB, CallContext &call,
+                                           const QStringList &fields)
+{
+  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+  if(m_Ctx->IsCaptureLoading())
+    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+
+  return DispatchBlock("renderdoc_diffPipelineState", call,
+                       [eventIdA, eventIdB, fields](IReplayController &replay) -> ToolResult {
+    QSet<quint32> eventIds;
+    CollectEventIdsRecursive(replay.GetRootActions(), eventIds);
+
+    if(!eventIds.contains(eventIdA))
+      return ToolResult::Failure(
+          Error(ErrorCode::InvalidParams,
+                QString::fromUtf8("no event with id %1 in this capture").arg(eventIdA)));
+    if(!eventIds.contains(eventIdB))
+      return ToolResult::Failure(
+          Error(ErrorCode::InvalidParams,
+                QString::fromUtf8("no event with id %1 in this capture").arg(eventIdB)));
+
+    replay.SetFrameEvent(eventIdA, false);
+    const QJsonObject stateA = PipelineStateToJson(replay);
+
+    replay.SetFrameEvent(eventIdB, false);
+    const QJsonObject stateB = PipelineStateToJson(replay);
+
+    const bool loadedA = stateA.value(QStringLiteral("loaded")).toBool();
+    const bool loadedB = stateB.value(QStringLiteral("loaded")).toBool();
+    if(!loadedA || !loadedB)
+    {
+      const uint32_t badEvent = !loadedA ? eventIdA : eventIdB;
+      return ToolResult::Failure(
+          Error(ErrorCode::ReplayUnavailable,
+                QString::fromUtf8("no pipeline state available at event %1").arg(badEvent)));
+    }
+
+    PipelineDiffResult diff;
+    diff.available = true;
+    diff.eventIdA = eventIdA;
+    diff.eventIdB = eventIdB;
+    diff.inspectedStages = SnapshotStagesFromPipelineJson(stateA, stateB);
+    diff.confidence = Confidence::Confirmed;
+    diff.limitation = QString::fromUtf8(
+        "Both events are resolved in the same capture, so every reported difference is a fact "
+        "read from replay. Fields absent from an API's pipeline state are simply not compared.");
+
+    QVector<QPair<QString, QJsonValue>> flatA;
+    QVector<QPair<QString, QJsonValue>> flatB;
+    FlattenSnapshotJson(stateA, QString(), flatA);
+    FlattenSnapshotJson(stateB, QString(), flatB);
+
+    QHash<QString, QJsonValue> mapA;
+    for(const QPair<QString, QJsonValue> &p : flatA)
+      mapA.insert(p.first, p.second);
+
+    QSet<QString> seenA;
+    for(const QPair<QString, QJsonValue> &p : flatB)
+    {
+      seenA.insert(p.first);
+      const QJsonValue av = mapA.value(p.first);
+      if(av == p.second)
+        continue;
+
+      PipelineFieldChange c;
+      c.path = p.first;
+      const int dot = c.path.indexOf(QLatin1Char('.'));
+      c.group = dot > 0 ? c.path.left(dot) : c.path;
+      c.before = SnapshotValueText(av);
+      c.after = SnapshotValueText(p.second);
+      c.beforeValue = av;
+      c.afterValue = p.second;
+      diff.changes.push_back(c);
+    }
+
+    // Fields present only in A (the value went away in B).
+    for(const QPair<QString, QJsonValue> &p : flatA)
+    {
+      if(seenA.contains(p.first))
+        continue;
+
+      PipelineFieldChange c;
+      c.path = p.first;
+      const int dot = c.path.indexOf(QLatin1Char('.'));
+      c.group = dot > 0 ? c.path.left(dot) : c.path;
+      c.before = SnapshotValueText(p.second);
+      c.after = QString::fromUtf8("none");
+      c.beforeValue = p.second;
+      c.afterValue = QJsonValue();
+      diff.changes.push_back(c);
+    }
+
+    // Shader-stage bindings, denormalised for clients that think in programs.
+    const QJsonObject shadersA = stateA.value(QStringLiteral("shaders")).toObject();
+    const QJsonObject shadersB = stateB.value(QStringLiteral("shaders")).toObject();
+    for(const QString &stage : diff.inspectedStages)
+    {
+      const QString nameA = PipelineStageDisplayName(shadersA, stage);
+      const QString nameB = PipelineStageDisplayName(shadersB, stage);
+      if(nameA == nameB)
+        continue;
+
+      PipelineShaderChange s;
+      s.stage = stage;
+      s.before = nameA;
+      s.after = nameB;
+      diff.shaderChanges.push_back(s);
+    }
+
+    diff.hasChanges = !diff.changes.isEmpty();
+
+    QJsonObject out = FilterFields(PipelineDiffResultToJson(diff), fields);
+
+    // The full snapshots are opt-in: they are large and most callers only want
+    // the change list. Asking for the `snapshots` field adds them.
+    if(fields.isEmpty() || fields.contains(QStringLiteral("snapshots")))
+    {
+      QJsonObject snaps;
+      snaps[QStringLiteral("eventA")] = stateA;
+      snaps[QStringLiteral("eventB")] = stateB;
+      out[QStringLiteral("snapshots")] = snaps;
+    }
+
+    out[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(out);
+  });
+}
+
+ToolResult QueryAdapter::ResourceMemoryAudit(int limit, CallContext &call,
+                                             const QStringList &fields)
+{
+  Q_UNUSED(call);
+
+  const int cap = limit > 0 ? limit : 64;
+
+  const ResourceMemoryAudit audit =
+      ReadOnUIThread<ResourceMemoryAudit>([this, cap]() -> ResourceMemoryAudit {
+    ResourceMemoryAudit out;
+
+    const rdcarray<TextureDescription> textures = m_Ctx->GetTextures();
+    const rdcarray<BufferDescription> buffers = m_Ctx->GetBuffers();
+    const rdcarray<ResourceDescription> resources = m_Ctx->GetResources();
+
+    QHash<quint64, uint32_t> formatCounts;
+    QStringList dimensions;
+    QVector<ResourceMemoryRow> rows;
+    uint64_t total = 0;
+
+    for(const TextureDescription &t : textures)
+    {
+      ResourceMemoryRow r;
+      r.resourceId = t.resourceId;
+      r.name = FromRdcStr(m_Ctx->GetResourceName(t.resourceId));
+      r.type = QStringLiteral("Texture");
+      r.textureType = detail::TextureTypeName(t.type);
+      r.byteSize = t.byteSize;
+      r.width = t.width;
+      r.height = t.height;
+      r.depth = t.depth;
+      r.mips = t.mips;
+      r.arraySize = t.arraysize;
+      r.format = detail::ResourceFormatString(t.format);
+      r.usage = detail::TextureUsageString(t.creationFlags);
+      rows.append(r);
+
+      out.totalTextureBytes += t.byteSize;
+      out.textures.count++;
+      formatCounts[r.format] += 1u;
+      if(t.mips > 1)
+        out.textures.mipLevelsAvailable++;
+
+      if(t.mips >= IdealMipCount(t.width, t.height, t.depth))
+        out.textures.fullMipChain++;
+      else
+        out.textures.missingMipChain++;
+
+      const QString dim = QString::fromUtf8("%1x%2x%3").arg(t.width).arg(t.height).arg(t.depth);
+      if(!dimensions.contains(dim))
+        dimensions.append(dim);
+    }
+
+    for(const BufferDescription &b : buffers)
+    {
+      ResourceMemoryRow r;
+      r.resourceId = b.resourceId;
+      r.name = FromRdcStr(m_Ctx->GetResourceName(b.resourceId));
+      r.type = QStringLiteral("Buffer");
+      r.byteSize = b.length;
+      r.usage = detail::BufferUsageString(b.creationFlags);
+      rows.append(r);
+
+      out.totalBufferBytes += b.length;
+      out.bufferCount++;
+    }
+
+    for(const ResourceDescription &res : resources)
+    {
+      if(res.type == ResourceType::Shader)
+        out.shaderCount++;
+    }
+    out.totalResources = (uint32_t)resources.size();
+
+    std::sort(rows.begin(), rows.end(), [](const ResourceMemoryRow &a, const ResourceMemoryRow &b) {
+      return a.byteSize > b.byteSize;
+    });
+    out.largestResources = rows;
+    if(cap > 0 && out.largestResources.size() > cap)
+      out.largestResources.resize(cap);
+
+    QVector<QPair<QString, uint32_t>> byFormat;
+    for(auto it = formatCounts.constBegin(); it != formatCounts.constEnd(); ++it)
+      byFormat.append(qMakePair(it.key(), it.value()));
+    std::sort(byFormat.begin(), byFormat.end(),
+              [](const QPair<QString, uint32_t> &a, const QPair<QString, uint32_t> &b) {
+                return a.second > b.second;
+              });
+    out.textures.byFormat = byFormat;
+    out.textures.dimensions = dimensions;
+
+    out.totalBytes = out.totalTextureBytes + out.totalBufferBytes;
+    out.totalMiB = double(out.totalBytes) / (1024.0 * 1024.0);
+
+    // Heuristic remarks. These are explicitly not facts and are labelled as such.
+    if(out.textures.missingMipChain > 0)
+      out.notes.append(QString::fromUtf8("%1 texture(s) have an incomplete mip chain, which can "
+                                         "increase sampling bandwidth and memory residency")
+                           .arg(out.textures.missingMipChain));
+    if(out.totalBytes > 0 && !out.largestResources.isEmpty())
+    {
+      const double share =
+          double(out.largestResources.first().byteSize) * 100.0 / double(out.totalBytes);
+      out.notes.append(
+          QString::fromUtf8("The largest single resource accounts for %1% of tracked memory")
+              .arg(share, 0, 'f', 1));
+    }
+    out.notes.append(QStringLiteral(
+        "Byte sizes are creation-time estimates; resident memory may differ due to aliasing, "
+        "sub-allocation and driver overhead."));
+
+    out.confidence = Confidence::Confirmed;
+    return out;
+  });
+
+  QJsonObject j = FilterFields(ResourceMemoryAuditToJson(audit), fields);
+  j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+  return ToolResult::Success(j);
+}
+
+ToolResult QueryAdapter::ResourceLifetime(int limit, CallContext &call,
+                                          const QStringList &fields)
+{
+  const int cap = limit > 0 ? limit : 100;
+
+  const QVector<ResourceLite> resources =
+      ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
+    return SnapshotResources(m_Ctx);
+  });
+
+  return DispatchBlock("renderdoc_resourceLifetime", call,
+                       [resources, cap, fields](IReplayController &replay) -> ToolResult {
+    const SDFile &sdfile = replay.GetStructuredFile();
+
+    rdcarray<const ActionDescription *> leaves;
+    CollectLeavesInList(replay.GetRootActions(), leaves);
+
+    struct Agg
+    {
+      uint32_t first = 0;
+      uint32_t last = 0;
+      uint32_t count = 0;
+      QVector<ResourceAccess> accesses;
+    };
+    QHash<quint64, Agg> aggs;
+
+    for(const ActionDescription *leaf : leaves)
+    {
+      LeafFacts facts;
+      if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
+        continue;
+
+      for(quint64 idv : facts.resourceIds)
+      {
+        Agg &a = aggs[idv];
+        if(a.count == 0 || facts.eventId < a.first)
+          a.first = facts.eventId;
+        if(facts.eventId > a.last)
+          a.last = facts.eventId;
+        a.count++;
+
+        ResourceAccess acc;
+        acc.id = ResourceIdFromValue(idv);
+        acc.name = facts.name;
+        acc.eventId = facts.eventId;
+        acc.usage = VecHasId(facts.renderTargetIds, idv)
+                        ? ResourceUsage::RenderTarget
+                        : (VecHasId(facts.sampledIds, idv) ? ResourceUsage::Sampled
+                                                           : ResourceUsage::Unknown);
+        a.accesses.append(acc);
+      }
+    }
+
+    QVector<ResourceLifetimeRow> rows;
+    rows.reserve(resources.size());
+    for(const ResourceLite &res : resources)
+    {
+      ResourceLifetimeRow row;
+      row.resourceId = ResourceIdFromValue(res.id);
+      row.name = res.name;
+      row.type = res.type;
+      row.byteSize = res.byteSize;
+
+      const Agg a = aggs.value(res.id);
+      row.observedEventCount = a.count;
+      row.firstEventId = a.first;
+      row.lastEventId = a.last;
+      row.accesses = a.accesses;
+      row.confidence = Confidence::Confirmed;
+      rows.append(row);
+    }
+
+    std::sort(rows.begin(), rows.end(),
+              [](const ResourceLifetimeRow &a, const ResourceLifetimeRow &b) {
+                if(a.observedEventCount != b.observedEventCount)
+                  return a.observedEventCount > b.observedEventCount;
+                return a.byteSize > b.byteSize;
+              });
+
+    ResourceLifetimeResult result;
+    result.available = true;
+    result.scannedEventCount = (uint32_t)leaves.size();
+    result.truncated = cap > 0 && rows.size() > cap;
+    if(cap > 0 && rows.size() > cap)
+      rows.resize(cap);
+    result.rows = rows;
+
+    QJsonObject j = FilterFields(ResourceLifetimeToJson(result), fields);
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
+}
+
+ToolResult QueryAdapter::FindUnusedResources(int limit, CallContext &call,
+                                             const QStringList &fields)
+{
+  const int cap = limit > 0 ? limit : 100;
+
+  const QVector<ResourceLite> resources =
+      ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
+    return SnapshotResources(m_Ctx);
+  });
+
+  return DispatchBlock("renderdoc_findUnusedResources", call,
+                       [resources, cap, fields](IReplayController &replay) -> ToolResult {
+    const SDFile &sdfile = replay.GetStructuredFile();
+
+    rdcarray<const ActionDescription *> leaves;
+    CollectLeavesInList(replay.GetRootActions(), leaves);
+
+    QHash<quint64, bool> touched;
+    for(const ActionDescription *leaf : leaves)
+    {
+      LeafFacts facts;
+      if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
+        continue;
+      for(quint64 idv : facts.resourceIds)
+        touched.insert(idv, true);
+    }
+
+    QVector<UnusedResource> candidates;
+    for(const ResourceLite &res : resources)
+    {
+      if(res.type == QStringLiteral("Shader") || touched.contains(res.id))
+        continue;
+      UnusedResource u;
+      u.resourceId = ResourceIdFromValue(res.id);
+      u.name = res.name;
+      u.type = res.type;
+      u.byteSize = res.byteSize;
+      candidates.append(u);
+    }
+
+    std::sort(candidates.begin(), candidates.end(),
+              [](const UnusedResource &a, const UnusedResource &b) {
+                return a.byteSize > b.byteSize;
+              });
+
+    UnusedResourceResult result;
+    result.available = true;
+    result.scannedEventCount = (uint32_t)leaves.size();
+    result.candidates = candidates;
+    if(cap > 0 && result.candidates.size() > cap)
+      result.candidates.resize(cap);
+    result.confidence = Confidence::Low;
+    result.limitation = QString::fromUtf8(
+        "Only resources referenced by an event's bound pipeline (render targets, sampled and "
+        "read-write resources) are observed. Resources used via unbound descriptors, indirect "
+        "access, or outside the captured frame are reported as unused incorrectly.");
+
+    QJsonObject j = FilterFields(UnusedResourceResultToJson(result), fields);
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
+}
+
+ToolResult QueryAdapter::FindResourceLeaks(int limit, CallContext &call,
+                                           const QStringList &fields)
+{
+  const int cap = limit > 0 ? limit : 100;
+
+  const QVector<ResourceLite> resources =
+      ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
+    return SnapshotResources(m_Ctx);
+  });
+
+  return DispatchBlock("renderdoc_findResourceLeaks", call,
+                       [resources, cap, fields](IReplayController &replay) -> ToolResult {
+    const SDFile &sdfile = replay.GetStructuredFile();
+
+    rdcarray<const ActionDescription *> leaves;
+    CollectLeavesInList(replay.GetRootActions(), leaves);
+
+    struct Agg
+    {
+      uint32_t first = 0;
+      uint32_t last = 0;
+      uint32_t count = 0;
+    };
+    QHash<quint64, Agg> aggs;
+
+    for(const ActionDescription *leaf : leaves)
+    {
+      LeafFacts facts;
+      if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
+        continue;
+      for(quint64 idv : facts.resourceIds)
+      {
+        Agg &a = aggs[idv];
+        if(a.count == 0 || facts.eventId < a.first)
+          a.first = facts.eventId;
+        if(facts.eventId > a.last)
+          a.last = facts.eventId;
+        a.count++;
+      }
+    }
+
+    QVector<LeakCandidate> candidates;
+    for(const ResourceLite &res : resources)
+    {
+      if(res.type == QStringLiteral("Shader"))
+        continue;
+
+      const Agg a = aggs.value(res.id);
+      LeakCandidate c;
+      c.resourceId = ResourceIdFromValue(res.id);
+      c.name = res.name;
+      c.type = res.type;
+      c.byteSize = res.byteSize;
+      c.createdEventId = a.first;
+      c.lastEventId = a.last;
+      c.observedEventCount = a.count;
+
+      if(a.count == 0)
+        c.reason = QString::fromUtf8("Never bound to any pipeline event in the captured frame");
+      else if(a.count == 1)
+        c.reason =
+            QString::fromUtf8("Bound to exactly one event (single-use) and still resident at the "
+                              "end of the frame");
+      else
+        continue;
+
+      c.confidence = Confidence::Low;
+      candidates.append(c);
+    }
+
+    std::sort(candidates.begin(), candidates.end(),
+              [](const LeakCandidate &a, const LeakCandidate &b) {
+                return a.byteSize > b.byteSize;
+              });
+
+    LeakResult result;
+    result.available = true;
+    result.scannedEventCount = (uint32_t)leaves.size();
+    result.candidates = candidates;
+    if(cap > 0 && result.candidates.size() > cap)
+      result.candidates.resize(cap);
+    result.confidence = Confidence::Low;
+    result.limitation = QString::fromUtf8(
+        "A single captured frame cannot show resource destruction, so a leak cannot be proven. "
+        "The candidates are resources never bound, or bound only once, during this frame; a "
+        "confident verdict requires comparing across frames or captures.");
+
+    QJsonObject j = FilterFields(LeakResultToJson(result), fields);
+    j[QStringLiteral("snapshot")] = SnapshotToJson(Snapshot());
+    return ToolResult::Success(j);
+  });
 }
 
 }    // namespace MCP

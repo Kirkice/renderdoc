@@ -205,6 +205,8 @@ struct ResourceAccess
   Confidence confidence = Confidence::Confirmed;
 };
 
+QJsonObject ResourceAccessToJson(const ResourceAccess &access);
+
 // A shader bound as part of a pipeline state. `stage` is the lower-case stage
 // name the plugin used ("vs", "ps", "cs", ...); empty if not known.
 struct ShaderRef
@@ -241,6 +243,10 @@ struct FrameStatistics
 };
 
 void BuildFrameStatistics(const FrameDescription &frame, FrameStatistics &out);
+
+// Serialise capture-level statistics. Exposed (not file-static) because the
+// query adapter reuses the exact same shape for the Frame Summary tool.
+QJsonObject FrameStatisticsToJson(const FrameStatistics &stats);
 
 // A texture flagged as large by the frame analysis.
 struct LargeTexture
@@ -361,5 +367,268 @@ struct PassGraph
 
 QJsonObject PassInfoToJson(const PassInfo &pass);
 QJsonObject PassGraphToJson(const PassGraph &graph);
+
+//
+// ---- Reverse search -------------------------------------------------------
+//
+
+// One event that matched a reverse search, with the resources/shader stage it
+// matched on and the evidence backing the match.
+struct ReverseSearchHit
+{
+  uint32_t eventId = 0;
+  QString name;
+  ResourceId resource;                  // for resource matches; null otherwise
+  QVector<ResourceAccess> resources;    // every matched resource touch (may be empty)
+  Confidence confidence = Confidence::Confirmed;
+};
+
+// The result of a reverse search for one query string.
+struct ReverseSearchResult
+{
+  QString query;                    // "shader" | "texture" | "resource"
+  QString term;                     // the searched term
+  uint32_t scannedEventCount = 0;   // leaf events that were inspected
+  bool truncated = false;           // true when a scan cap stopped the search early
+  QVector<ReverseSearchHit> hits;
+};
+
+QJsonObject ReverseSearchResultToJson(const ReverseSearchResult &result);
+
+// A dependency edge between two passes discovered by the reverse resource
+// search: `toEventId` samples a texture that `fromEventId` rendered.
+struct ResourceEdge
+{
+  uint32_t fromEventId = 0;
+  uint32_t toEventId = 0;
+  ResourceId resource;
+  QString resourceName;
+  QString usage;   // "sampledFromRenderTarget"
+  Confidence confidence = Confidence::Confirmed;
+};
+
+// The pass/resource dependency graph derived from the reverse index.
+struct PassGraphResult
+{
+  uint32_t scannedEventCount = 0;
+  bool truncated = false;
+  QVector<ResourceEdge> edges;
+};
+
+QJsonObject PassGraphResultToJson(const PassGraphResult &result);
+
+//
+// ---- Resource memory audit ------------------------------------------------
+//
+
+// One resource as reported by the memory audit: its creation-time footprint and
+// (for textures) the shape/format facts used by the audit summary.
+struct ResourceMemoryRow
+{
+  ResourceId resourceId;
+  QString name;
+  QString type;                 // ResourceTypeName() e.g. "Texture"/"Buffer"
+  QString textureType;          // TextureTypeName() for textures, else empty
+  uint64_t byteSize = 0;        // creation-time byte size (0 if unknown)
+  uint32_t width = 0;
+  uint32_t height = 0;
+  uint32_t depth = 0;
+  uint32_t mips = 0;
+  uint32_t arraySize = 0;
+  QString format;               // ResourceFormatString() for textures
+  QString usage;                // "|"-joined creation flags (textures/buffers)
+};
+
+// Aggregate facts over the texture inventory, mirroring the plugin's textureAudit
+// block: how many textures, their format histogram, whether mip chains and
+// dimensions are consistent enough to reason about residency.
+struct TextureAudit
+{
+  uint32_t count = 0;
+  QVector<QPair<QString, uint32_t>> byFormat;   // (format name, count), desc
+  uint32_t mipLevelsAvailable = 0;              // textures with mips > 1
+  uint32_t missingMipChain = 0;                 // textures whose mips != ideal
+  uint32_t fullMipChain = 0;                    // textures whose mips == ideal
+  QVector<QString> dimensions;                  // distinct "WxHxD" strings
+};
+
+// The whole-capture memory audit. Facts (bytes, counts) are Confirmed; the
+// notes call out heuristic observations that a client should not treat as ground
+// truth.
+struct ResourceMemoryAudit
+{
+  uint32_t totalResources = 0;
+  uint64_t totalBytes = 0;
+  double totalMiB = 0.0;
+  uint32_t textureCount = 0;
+  uint32_t bufferCount = 0;
+  uint32_t shaderCount = 0;
+  uint64_t totalTextureBytes = 0;
+  uint64_t totalBufferBytes = 0;
+  QVector<ResourceMemoryRow> largestResources;
+  TextureAudit textures;
+  QStringList notes;            // heuristic remarks, explicitly not facts
+  Confidence confidence = Confidence::Confirmed;
+};
+
+QJsonObject ResourceMemoryAuditToJson(const ResourceMemoryAudit &audit);
+
+//
+// ---- Resource lifetime ----------------------------------------------------
+//
+
+// One resource's observed lifetime within the captured frame: every event that
+// produced or consumed it, the first/last such event and how many events touched
+// it. `observedEventCount == 0` means the resource was created but never touched
+// by any pipeline-bound event in this frame.
+struct ResourceLifetimeRow
+{
+  ResourceId resourceId;
+  QString name;
+  QString type;
+  uint64_t byteSize = 0;
+  uint32_t observedEventCount = 0;
+  uint32_t firstEventId = 0;
+  uint32_t lastEventId = 0;
+  QVector<ResourceAccess> accesses;   // producer/consumer touches, event order
+  Confidence confidence = Confidence::Confirmed;
+};
+
+struct ResourceLifetimeResult
+{
+  bool available = true;
+  uint32_t scannedEventCount = 0;
+  bool truncated = false;
+  QVector<ResourceLifetimeRow> rows;
+};
+
+QJsonObject ResourceLifetimeToJson(const ResourceLifetimeResult &result);
+
+//
+// ---- Unused-resource identification ---------------------------------------
+//
+
+// A resource the pipeline never observed being touched in the frame. This is a
+// heuristic: a resource legitimately read via an unbound descriptor, indirect
+// access or outside the captured frame will also appear here.
+struct UnusedResource
+{
+  ResourceId resourceId;
+  QString name;
+  QString type;
+  uint64_t byteSize = 0;
+};
+
+struct UnusedResourceResult
+{
+  bool available = true;
+  uint32_t scannedEventCount = 0;
+  uint32_t candidateCount = 0;
+  QVector<UnusedResource> candidates;
+  Confidence confidence = Confidence::Low;
+  QString limitation;
+};
+
+QJsonObject UnusedResourceResultToJson(const UnusedResourceResult &result);
+
+//
+// ---- Suspected resource leaks ---------------------------------------------
+//
+
+// A resource that is a candidate for a leak: created early, touched only
+// transiently (or not at all after its first touch) and still resident at the end
+// of the frame. This is a heuristic ranking, not a verdict.
+struct LeakCandidate
+{
+  ResourceId resourceId;
+  QString name;
+  QString type;
+  uint64_t byteSize = 0;
+  uint32_t createdEventId = 0;      // first observed touch (0 = never touched)
+  uint32_t lastEventId = 0;
+  uint32_t observedEventCount = 0;
+  QString reason;                   // human-readable heuristic reason
+  Confidence confidence = Confidence::Low;
+};
+
+struct LeakResult
+{
+  bool available = true;
+  uint32_t scannedEventCount = 0;
+  uint32_t candidateCount = 0;
+  QVector<LeakCandidate> candidates;
+  Confidence confidence = Confidence::Low;
+  QString limitation;
+};
+
+QJsonObject LeakResultToJson(const LeakResult &result);
+
+//
+// ---- P1-5 pipeline / shader snapshot and diff ----------------------------
+//
+// The ported plugin DiffPipelineStateTool compares the pipeline state of two
+// events in the SAME capture. We reuse the native PipelineStateToJson() (the
+// renderdoc_getPipelineState serialiser) as the "structured snapshot" and add a
+// UI-independent diff model on top of it:
+//
+//   * a structured snapshot is just that JSON object, plus the enumeration of
+//     the shader stages actually present (SnapshotStagesFromPipelineJson);
+//   * the diff flattens both snapshots into dotted field paths and reports every
+//     path whose value differs, with a compact before/after rendering for the
+//     common case and the raw JSON values when a client needs to go deeper.
+//
+// PipelineStateToJson() output is pure data (other than the nested ResourceRef
+// objects), so diffing it needs neither Qt widgets nor the replay controller.
+
+// One flattened field that differs between the two events. `path` uses dotted
+// notation into the snapshot JSON (e.g. "rasterizer.cullMode",
+// "shaders.vertex.entryPoint", "outputTargets.0.resourceId"). `group` is the
+// leading path segment so clients can filter ("shaders", "rasterizer", ...).
+struct PipelineFieldChange
+{
+  QString path;
+  QString group;
+  QString before;    // compact human-readable rendering of the old value
+  QString after;     // compact human-readable rendering of the new value
+  QJsonValue beforeValue;    // raw JSON, for clients that need the details
+  QJsonValue afterValue;
+};
+
+// A shader-stage binding change, denormalised out of the field list so callers
+// can reason about program changes without parsing dotted paths. `before` and
+// `after` are the shader display names (resource name, else entry point, else
+// JSON) and are empty when the stage was unbound at that event.
+struct PipelineShaderChange
+{
+  QString stage;     // "vertex" | "pixel" | ... (matches detail::ShaderStageName)
+  QString before;
+  QString after;
+};
+
+struct PipelineDiffResult
+{
+  bool available = true;
+  uint32_t eventIdA = 0;
+  uint32_t eventIdB = 0;
+  bool hasChanges = false;
+
+  // Stages the snapshot enumerates that were non-empty at either event, plus the
+  // stages that were bound at only one event (reported in `changes`).
+  QStringList inspectedStages;
+
+  QVector<PipelineFieldChange> changes;
+  QVector<PipelineShaderChange> shaderChanges;
+
+  Confidence confidence = Confidence::Confirmed;
+  QString limitation;
+};
+
+QJsonObject PipelineDiffResultToJson(const PipelineDiffResult &result);
+
+// Enumerate the shader stages that are bound at either event's snapshot. Kept
+// here (rather than inline in the adapter) so the stage set stays in one place
+// and so the test can exercise it without a replay controller. Returns the
+// stages in canonical order; the returned list may be empty.
+QStringList SnapshotStagesFromPipelineJson(const QJsonObject &stateA, const QJsonObject &stateB);
 
 }    // namespace MCP

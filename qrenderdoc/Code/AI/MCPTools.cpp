@@ -30,6 +30,7 @@
 #include <QStringList>
 #include <string.h>
 #include "renderdoc_replay.h"
+#include "Code/AI/MCPAnalysisModel.h"
 
 // Full ICaptureContext is needed so the sensitive-data gate can read the live
 // MCP_AllowSensitiveData setting through the capture context. MCPQueryAdapter.h
@@ -898,15 +899,369 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
 
   {
     QJsonObject props;
+    AddSchemaProperty(props, "fields", "array",
+                      "Optional list of top-level keys to return: topLevelPasses, leafCounts, "
+                      "statistics, counts.");
 
     registry.Add(
         ToolDefinition{QStringLiteral("renderdoc_getFrameSummary"), QStringLiteral("Get Frame Summary"),
-                       QStringLiteral("Return the frame description and statistics for the capture: "
-                                      "frame number, total actions/draws/dispatches, the API "
-                                      "capability set and the per-frame resource counts."),
+                       QStringLiteral("Return a native frame summary: the top-level pass list "
+                                      "(eventId/name/flags/childCount per root action), leaf-only "
+                                      "effect counts (draws/dispatches/clears) and the frame "
+                                      "statistics. Snapshot-based, so it works even when replay is "
+                                      "unavailable."),
                        ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
-        [&adapter](const QJsonObject &, CallContext &) -> ToolResult {
-          return WithCapture(adapter, adapter.FrameInfo());
+        [&adapter](const QJsonObject &args, CallContext &) -> ToolResult {
+          return adapter.FrameSummary(ArgFields(args));
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Frame analysis (P1-2)
+  // ---------------------------------------------------------------------------
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "driver", "string",
+                      "Optional driver label to stamp on the report (APIProperties does not "
+                      "expose it).");
+    AddSchemaProperty(props, "rdocVersion", "string",
+                      "Optional RenderDoc version label; defaults to this build's version.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_analyzeFrame"),
+                       QStringLiteral("Analyze Frame"),
+                       QStringLiteral("Run a whole-frame analysis: API/driver labels, frame "
+                                      "statistics, whole-tree effect counts, resource inventory "
+                                      "(textures, buffers, shaders, large textures and their "
+                                      "memory) and heuristic potential issues, each tagged with "
+                                      "evidence and a confidence. Snapshot-based, so it does not "
+                                      "need the replay thread."),
+                       ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &) -> ToolResult {
+          FrameAnalysisOptions options;
+          options.driver = ArgStr(args, "driver");
+          options.rdocVersion = ArgStr(args, "rdocVersion");
+          return adapter.AnalyzeFrame(options, ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "top", "integer",
+                      "Number of hottest events to return (default 10).");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_getHotEvents"), QStringLiteral("Get Hot Events"),
+                       QStringLiteral("Rank the frame's events by GPU duration (the "
+                                      "EventGPUDuration counter) and return the hottest events "
+                                      "with their per-frame share and timing evidence. The result "
+                                      "is marked unsupported rather than zero-filled when the "
+                                      "capture API does not expose the counter. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          const uint32_t top = ArgU32(args, "top", 10);
+          return adapter.HotEvents(top, call, ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "eventId", "integer", "The event id to analyse.");
+    AddSchemaProperty(props, "includeShaderInfo", "boolean",
+                      "Include the per-stage shader reflection summary (default false).");
+    AddSchemaProperty(props, "includeMeshData", "boolean",
+                      "Include the mesh/post-VS data summary (default false).");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_analyzeHotEvent"),
+                       QStringLiteral("Analyze Hot Event"),
+                       QStringLiteral("Multi-evidence analysis of one event: the event itself, its "
+                                      "GPU duration, the pipeline state (shaders and render/depth "
+                                      "targets), resource counts, and optionally the per-stage "
+                                      "shader info and mesh data. Every conclusion carries an "
+                                      "evidence reference and a confidence so clients can separate "
+                                      "facts from inference. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          const uint32_t eventId = ArgU32(args, "eventId");
+          const bool shaderInfo = args.value(QStringLiteral("includeShaderInfo")).toBool(false);
+          const bool meshData = args.value(QStringLiteral("includeMeshData")).toBool(false);
+          return adapter.AnalyzeHotEvent(eventId, shaderInfo, meshData, call, ArgFields(args));
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pass graph and reverse search (P1-3)
+  // ---------------------------------------------------------------------------
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "includeResources", "boolean",
+                      "Collect each pass's render target and sampled texture resources "
+                      "(default true).");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_getPassGraph"),
+                       QStringLiteral("Get Pass Graph"),
+                       QStringLiteral("Build the frame's pass graph: one pass per top-level marker "
+                                      "with its event range, draw count, duration and (optionally) "
+                                      "its render target and sampled texture resources, plus the "
+                                      "edges where a later pass samples a texture an earlier pass "
+                                      "rendered. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          const bool includeResources = args.value(QStringLiteral("includeResources")).toBool(true);
+          return adapter.GetPassGraph(includeResources, call, ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "shaderName", "string",
+                      "Case-insensitive substring of a shader entry point name or a shader "
+                      "resource display name to match.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_findDrawsByShader"),
+                       QStringLiteral("Find Draws By Shader"),
+                       QStringLiteral("Reverse-search the frame for every draw/dispatch that uses a "
+                                      "shader whose entry point name or resource name contains the "
+                                      "query (case-insensitive). Returns the matching event ids in "
+                                      "ascending order. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          const QString term = ArgStr(args, "shaderName");
+          if(term.isEmpty())
+            return FailWithCapture(ErrorCode::InvalidToolInput,
+                                   "shaderName is required and must be a non-empty string.");
+          return adapter.FindDrawsByShader(term, call, ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "textureName", "string",
+                      "Case-insensitive substring of a texture/buffer resource name to match.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_findDrawsByTexture"),
+                       QStringLiteral("Find Draws By Texture"),
+                       QStringLiteral("Reverse-search the frame for every draw/dispatch that samples "
+                                      "a texture or buffer whose resource name contains the query "
+                                      "(case-insensitive). Returns the matching event ids in "
+                                      "ascending order. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          const QString term = ArgStr(args, "textureName");
+          if(term.isEmpty())
+            return FailWithCapture(ErrorCode::InvalidToolInput,
+                                   "textureName is required and must be a non-empty string.");
+          return adapter.FindDrawsByTexture(term, call, ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "resourceId", "string",
+                      "The resource id (as produced by the resource tools) to match exactly.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_findDrawsByResourceId"),
+                       QStringLiteral("Find Draws By Resource Id"),
+                       QStringLiteral("Reverse-search the frame for every draw/dispatch that binds "
+                                      "the given resource id, reporting whether it was used as a "
+                                      "render target or sampled. Returns the matching event ids in "
+                                      "ascending order. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          const ResourceId id = ArgResourceId(args, "resourceId");
+          if(ResIdValue(id) == 0)
+            return FailWithCapture(ErrorCode::InvalidToolInput,
+                                   "resourceId is required and must be a valid resource id.");
+          return adapter.FindDrawsByResourceId(id, call, ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "resourceId", "string",
+                      "The resource id to trace through the frame.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_traceResourceUsage"),
+                       QStringLiteral("Trace Resource Usage"),
+                       QStringLiteral("Trace one resource through the frame: the events that "
+                                      "produce it (render/write) and the events that consume it "
+                                      "(sample/read), each with usage and confidence evidence. "
+                                      "Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          const ResourceId id = ArgResourceId(args, "resourceId");
+          if(ResIdValue(id) == 0)
+            return FailWithCapture(ErrorCode::InvalidToolInput,
+                                   "resourceId is required and must be a valid resource id.");
+          return adapter.TraceResourceUsage(id, call, ArgFields(args));
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Resource memory audit, lifetimes, unused resources and leak heuristics (P1-4)
+  // ---------------------------------------------------------------------------
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "limit", "number",
+                      "Maximum number of largest resources to return (default 64).");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_resourceMemoryAudit"),
+                       QStringLiteral("Resource Memory Audit"),
+                       QStringLiteral("Audit creation-time resource memory: total tracked bytes, "
+                                      "texture and buffer subtotals, the largest resources and a "
+                                      "texture format/mip histogram. Facts are Confirmed; the "
+                                      "notes list heuristic observations."),
+                       ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.ResourceMemoryAudit((int)ArgU32(args, "limit", 64), call, ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "limit", "number",
+                      "Maximum number of resource rows to return (default 100).");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_resourceLifetime"),
+                       QStringLiteral("Resource Lifetime"),
+                       QStringLiteral("Report the observed lifetime of each resource in the frame: "
+                                      "the events that produced/consumed it, the first and last "
+                                      "such event and the touch count. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.ResourceLifetime((int)ArgU32(args, "limit", 100), call, ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "limit", "number",
+                      "Maximum number of candidates to return (default 100).");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_findUnusedResources"),
+                       QStringLiteral("Find Unused Resources"),
+                       QStringLiteral("Heuristically identify resources that no bound pipeline "
+                                      "event touched in the frame. Results carry low confidence "
+                                      "and an explicit limitation. Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.FindUnusedResources((int)ArgU32(args, "limit", 100), call,
+                                             ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "limit", "number",
+                      "Maximum number of candidates to return (default 100).");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_findResourceLeaks"),
+                       QStringLiteral("Find Suspected Resource Leaks"),
+                       QStringLiteral("Heuristically rank resources that look leaked: never bound, "
+                                      "or bound only once, during the captured frame yet still "
+                                      "resident. This is a low-confidence signal, not a verdict. "
+                                      "Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.FindResourceLeaks((int)ArgU32(args, "limit", 100), call, ArgFields(args));
+        });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Structured pipeline snapshot per event and same-capture pipeline diff (P1-5)
+  // ---------------------------------------------------------------------------
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "eventId", "number",
+                      "The event id whose pipeline state to serialise.");
+    AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_getPipelineStateAtEvent"),
+                       QStringLiteral("Get Pipeline State At Event"),
+                       QStringLiteral("Select one event and return its structured pipeline state "
+                                      "(same shape as renderdoc_getPipelineState, but for any "
+                                      "event, not just the current one). Requires replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.PipelineSnapshotAt(ArgU32(args, "eventId", 0), call, ArgFields(args));
+        });
+  }
+
+  {
+    QJsonObject props;
+    AddSchemaProperty(props, "eventIdA", "number", "The baseline event id.");
+    AddSchemaProperty(props, "eventIdB", "number", "The event id to compare against the baseline.");
+    AddSchemaProperty(props, "fields", "array",
+                      "Optional list of top-level keys to return. Add \"snapshots\" to also "
+                      "receive both full pipeline snapshots, not just the change list.");
+
+    registry.Add(
+        ToolDefinition{QStringLiteral("renderdoc_diffPipelineState"),
+                       QStringLiteral("Diff Pipeline State"),
+                       QStringLiteral("Compare the structured pipeline state of two events in the "
+                                      "same capture. Returns the differing dotted field paths with "
+                                      "before/after values plus a denormalised shader-stage binding "
+                                      "list. Every difference is a fact read from replay. Requires "
+                                      "replay."),
+                       ToolEffects::ReadOnly,
+                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       MakeSchema(props)},
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          const uint32_t eventIdA = ArgU32(args, "eventIdA", 0);
+          const uint32_t eventIdB = ArgU32(args, "eventIdB", 0);
+          if(eventIdA == 0 || eventIdB == 0)
+            return FailWithCapture(ErrorCode::InvalidToolInput,
+                                   "eventIdA and eventIdB are required and must be non-zero.");
+          return adapter.DiffPipelineState(eventIdA, eventIdB, call, ArgFields(args));
         });
   }
 

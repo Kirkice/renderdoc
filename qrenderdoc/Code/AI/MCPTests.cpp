@@ -68,6 +68,7 @@
 
 #include "3rdparty/catch/catch.hpp"
 
+#include "Code/AI/MCPAnalysisModel.h"
 #include "Code/AI/MCPHttpServer.h"
 #include "Code/AI/MCPQueryAdapter.h"
 #include "Code/AI/MCPToolRegistry.h"
@@ -926,6 +927,553 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
   sock.disconnectFromHost();
   server.Stop();
   CHECK_FALSE(server.IsRunning());
+}
+
+TEST_CASE("MCP analysis domain model", "[mcp][analysis]")
+{
+  using namespace MCP;
+
+  // ---- evidence + confidence ---------------------------------------------
+  CHECK(ConfidenceName(Confidence::Confirmed) == QStringLiteral("confirmed"));
+  CHECK(ConfidenceName(Confidence::Inferred) == QStringLiteral("inferred"));
+  CHECK(ConfidenceName(Confidence::ToVerify) == QStringLiteral("toVerify"));
+
+  {
+    const EvidenceRef ev = EventEvidence(42, QStringLiteral("Draw(3)"));
+    CHECK(ev.kind == QStringLiteral("event"));
+    CHECK(ev.eventId == 42u);
+    CHECK(ev.confidence == Confidence::Confirmed);
+
+    const QJsonObject j = EvidenceToJson(ev);
+    CHECK(j.value(QStringLiteral("kind")).toString() == QStringLiteral("event"));
+    CHECK(j.value(QStringLiteral("eventId")).toInt() == 42);
+    // Fields irrelevant to an event evidence must not be serialised.
+    CHECK_FALSE(j.contains(QStringLiteral("resourceValue")));
+    CHECK_FALSE(j.contains(QStringLiteral("durationUs")));
+  }
+
+  {
+    const EvidenceRef ev = TimingEvidence(7, 1234.5, QStringLiteral("PS main"));
+    CHECK(ev.kind == QStringLiteral("timing"));
+    CHECK(ev.eventId == 7u);
+    CHECK(ev.durationUs == 1234.5);
+
+    const QJsonObject j = EvidenceToJson(ev);
+    CHECK(j.value(QStringLiteral("kind")).toString() == QStringLiteral("timing"));
+    CHECK(j.value(QStringLiteral("durationUs")).toDouble() == 1234.5);
+  }
+
+  // ---- flags classification ------------------------------------------------
+  CHECK(IsRealEffect(ActionFlags::Drawcall));
+  CHECK(IsRealEffect(ActionFlags::Dispatch));
+  CHECK(IsRealEffect(ActionFlags::MeshDispatch));
+  CHECK(IsRealEffect(ActionFlags::Clear));
+  CHECK_FALSE(IsRealEffect(ActionFlags::PushMarker));
+  CHECK_FALSE(IsRealEffect(ActionFlags::PopMarker));
+  CHECK_FALSE(IsRealEffect(ActionFlags::SetMarker));
+  CHECK_FALSE(IsRealEffect(ActionFlags::NoFlags));
+
+  // ---- flatten + count ----------------------------------------------------
+  ActionDescription root;
+  root.eventId = 10;
+  root.actionId = 10;
+  root.flags = ActionFlags::PushMarker;
+  root.customName = rdcstr("Frame");
+
+  ActionDescription draw1;
+  draw1.eventId = 11;
+  draw1.actionId = 11;
+  draw1.flags = ActionFlags::Drawcall;
+  draw1.numIndices = 3;
+  draw1.numInstances = 1;
+
+  ActionDescription dispatch1;
+  dispatch1.eventId = 12;
+  dispatch1.actionId = 12;
+  dispatch1.flags = ActionFlags::Dispatch;
+
+  ActionDescription clear1;
+  clear1.eventId = 13;
+  clear1.actionId = 13;
+  clear1.flags = ActionFlags::Clear;
+
+  root.children.push_back(draw1);
+  root.children.push_back(dispatch1);
+  root.children.push_back(clear1);
+
+  CHECK(IsMarkerGroup(root));
+  CHECK_FALSE(IsMarkerGroup(draw1));
+
+  rdcarray<ActionDescription> roots;
+  roots.push_back(root);
+
+  SDFile sdfile;   // empty structured file: GetName falls back to customName
+
+  rdcarray<EventNode> events;
+  FlattenEvents(roots, sdfile, events);
+
+  // Pre-order: root, then its three leaves.
+  REQUIRE(events.size() == 4u);
+  CHECK(events[0].eventId == 10u);
+  CHECK(events[0].parentEventId == 0u);
+  CHECK(events[0].depth == 0u);
+  CHECK(events[0].childCount == 3u);
+  CHECK(events[0].name == QStringLiteral("Frame"));
+
+  CHECK(events[1].eventId == 11u);
+  CHECK(events[1].parentEventId == 10u);
+  CHECK(events[1].depth == 1u);
+  CHECK(events[1].childCount == 0u);
+  CHECK(events[1].numIndices == 3u);
+
+  const EventCounts whole = CountEffects(events);
+  CHECK(whole.total == 4u);
+  CHECK(whole.draws == 1u);
+  CHECK(whole.dispatches == 1u);
+  CHECK(whole.clears == 1u);
+  CHECK(whole.markers == 1u);
+
+  // Leaf-only counting matches the FrameSummary contract: the container marker
+  // has childCount != 0 and is therefore excluded from leaf totals.
+  rdcarray<EventNode> leaves;
+  for(const EventNode &n : events)
+  {
+    if(n.childCount == 0)
+      leaves.push_back(n);
+  }
+  const EventCounts leafCounts = CountEffects(leaves);
+  CHECK(leafCounts.total == 3u);
+  CHECK(leafCounts.draws == 1u);
+  CHECK(leafCounts.dispatches == 1u);
+  CHECK(leafCounts.clears == 1u);
+  CHECK(leafCounts.markers == 0u);
+
+  {
+    const QJsonObject j = EventCountsToJson(leafCounts);
+    CHECK(j.value(QStringLiteral("total")).toInt() == 3);
+    CHECK(j.value(QStringLiteral("draws")).toInt() == 1);
+    CHECK(j.value(QStringLiteral("markers")).toInt() == 0);
+
+    const QJsonObject nj = EventNodeToJson(events[1]);
+    CHECK(nj.value(QStringLiteral("eventId")).toInt() == 11);
+    CHECK(nj.value(QStringLiteral("depth")).toInt() == 1);
+    // childCount is only emitted when non-zero, keeping leaf nodes compact.
+    CHECK_FALSE(nj.contains(QStringLiteral("childCount")));
+    CHECK(EventNodeToJson(events[0]).value(QStringLiteral("childCount")).toInt() == 3);
+  }
+
+  // ---- statistics serialisation -------------------------------------------
+  {
+    FrameStatistics stats;
+    stats.frameNumber = 5;
+    stats.uncompressedFileSize = 1000;
+    stats.compressedFileSize = 250;
+
+    const QJsonObject j = FrameStatisticsToJson(stats);
+    CHECK(j.value(QStringLiteral("frameNumber")).toInt() == 5);
+    CHECK(j.value(QStringLiteral("uncompressedFileSize")).toDouble() == 1000.0);
+    CHECK(j.value(QStringLiteral("compressedFileSize")).toDouble() == 250.0);
+  }
+
+  // ---- frame analysis + pass graph JSON shape -----------------------------
+  {
+    FrameAnalysis analysis;
+    analysis.api = QStringLiteral("Vulkan");
+    analysis.counts = leafCounts;
+
+    const QJsonObject j = FrameAnalysisToJson(analysis);
+    CHECK(j.value(QStringLiteral("api")).toString() == QStringLiteral("Vulkan"));
+    REQUIRE(j.contains(QStringLiteral("counts")));
+    CHECK(j.value(QStringLiteral("counts")).toObject().value(QStringLiteral("total")).toInt() == 3);
+    REQUIRE(j.contains(QStringLiteral("statistics")));
+    CHECK(j.value(QStringLiteral("resources")).toObject().value(QStringLiteral("textureCount")).toInt() == 0);
+  }
+
+  {
+    PassGraph graph;
+    PassInfo pass;
+    pass.id = QStringLiteral("pass-0");
+    pass.name = QStringLiteral("GBuffer");
+    pass.eventIdStart = 10;
+    pass.eventIdEnd = 20;
+    pass.drawCount = 4;
+    graph.passes.push_back(pass);
+
+    const QJsonObject j = PassGraphToJson(graph);
+    REQUIRE(j.contains(QStringLiteral("passes")));
+    const QJsonArray passes = j.value(QStringLiteral("passes")).toArray();
+    REQUIRE(passes.size() == 1);
+    CHECK(passes[0].toObject().value(QStringLiteral("id")).toString() == QStringLiteral("pass-0"));
+    CHECK(passes[0].toObject().value(QStringLiteral("drawCount")).toInt() == 4);
+  }
+}
+
+TEST_CASE("MCP pass graph and reverse search model", "[mcp][analysis]")
+{
+  using namespace MCP;
+
+  // ---- resource access + reverse search hit shape ------------------------
+  {
+    ResourceAccess access;
+    access.eventId = 11;
+    access.name = QStringLiteral("GBufferAlbedo");
+    access.usage = ResourceUsage::RenderTarget;
+    access.confidence = Confidence::Confirmed;
+
+    const QJsonObject j = ResourceAccessToJson(access);
+    CHECK(j.value(QStringLiteral("eventId")).toInt() == 11);
+    CHECK(j.value(QStringLiteral("name")).toString() == QStringLiteral("GBufferAlbedo"));
+    CHECK(j.value(QStringLiteral("usage")).toString() == QStringLiteral("renderTarget"));
+    CHECK(j.value(QStringLiteral("confidence")).toString() == QStringLiteral("confirmed"));
+  }
+
+  {
+    ReverseSearchResult result;
+    result.query = QStringLiteral("shader");
+    result.term = QStringLiteral("ps_main");
+    result.scannedEventCount = 4;
+
+    ReverseSearchHit hit;
+    hit.eventId = 22;
+    hit.name = QStringLiteral("Draw(3)");
+    hit.confidence = Confidence::Confirmed;
+
+    ResourceAccess access;
+    access.eventId = 22;
+    access.name = QStringLiteral("ps_main");
+    access.usage = ResourceUsage::Sampled;
+    hit.resources.push_back(access);
+
+    result.hits.push_back(hit);
+
+    const QJsonObject j = ReverseSearchResultToJson(result);
+    CHECK(j.value(QStringLiteral("query")).toString() == QStringLiteral("shader"));
+    CHECK(j.value(QStringLiteral("term")).toString() == QStringLiteral("ps_main"));
+    CHECK(j.value(QStringLiteral("scannedEventCount")).toInt() == 4);
+    CHECK(j.value(QStringLiteral("truncated")).toBool() == false);
+    CHECK(j.value(QStringLiteral("matchCount")).toInt() == 1);
+
+    const QJsonArray eventIds = j.value(QStringLiteral("eventIds")).toArray();
+    REQUIRE(eventIds.size() == 1);
+    CHECK(eventIds[0].toInt() == 22);
+
+    const QJsonArray hits = j.value(QStringLiteral("hits")).toArray();
+    REQUIRE(hits.size() == 1);
+    CHECK(hits[0].toObject().value(QStringLiteral("eventId")).toInt() == 22);
+    const QJsonArray res = hits[0].toObject().value(QStringLiteral("resources")).toArray();
+    REQUIRE(res.size() == 1);
+    CHECK(res[0].toObject().value(QStringLiteral("usage")).toString() ==
+          QStringLiteral("sampled"));
+  }
+
+  // ---- pass graph result shape -------------------------------------------
+  {
+    PassGraphResult graph;
+    graph.scannedEventCount = 4;
+    graph.truncated = true;
+
+    ResourceEdge edge;
+    edge.fromEventId = 11;
+    edge.toEventId = 30;
+    edge.resourceName = QStringLiteral("GBufferAlbedo");
+    edge.usage = QStringLiteral("sampledFromRenderTarget");
+    edge.confidence = Confidence::Inferred;
+    graph.edges.push_back(edge);
+
+    const QJsonObject j = PassGraphResultToJson(graph);
+    CHECK(j.value(QStringLiteral("scannedEventCount")).toInt() == 4);
+    CHECK(j.value(QStringLiteral("truncated")).toBool() == true);
+    CHECK(j.value(QStringLiteral("edgeCount")).toInt() == 1);
+
+    const QJsonArray edges = j.value(QStringLiteral("edges")).toArray();
+    REQUIRE(edges.size() == 1);
+    const QJsonObject e = edges[0].toObject();
+    CHECK(e.value(QStringLiteral("fromEventId")).toInt() == 11);
+    CHECK(e.value(QStringLiteral("toEventId")).toInt() == 30);
+    CHECK(e.value(QStringLiteral("resourceName")).toString() == QStringLiteral("GBufferAlbedo"));
+    CHECK(e.value(QStringLiteral("usage")).toString() ==
+          QStringLiteral("sampledFromRenderTarget"));
+    CHECK(e.value(QStringLiteral("confidence")).toString() == QStringLiteral("inferred"));
+  }
+}
+
+TEST_CASE("MCP resource audit, lifetime, unused and leak model", "[mcp][analysis]")
+{
+  using namespace MCP;
+
+  // ---- memory audit: facts are confirmed, notes are heuristic -------------
+  {
+    ResourceMemoryAudit audit;
+    audit.totalResources = 3;
+    audit.totalBytes = 3u * 1024u * 1024u;
+    audit.totalMiB = 3.0;
+    audit.textureCount = 1;
+    audit.bufferCount = 1;
+    audit.shaderCount = 1;
+    audit.totalTextureBytes = 2u * 1024u * 1024u;
+    audit.totalBufferBytes = 1024u * 1024u;
+
+    ResourceMemoryRow row;
+    row.name = QStringLiteral("GBufferAlbedo");
+    row.type = QStringLiteral("Texture");
+    row.textureType = QStringLiteral("2D");
+    row.byteSize = 2u * 1024u * 1024u;
+    row.width = 1920;
+    row.height = 1080;
+    row.mips = 1;
+    row.format = QStringLiteral("R8G8B8A8_UNORM");
+    audit.largestResources.push_back(row);
+
+    audit.textures.count = 1;
+    audit.textures.byFormat.push_back(qMakePair(QStringLiteral("R8G8B8A8_UNORM"), (uint32_t)1));
+    audit.textures.mipLevelsAvailable = 0;
+    audit.textures.missingMipChain = 1;
+    audit.textures.dimensions.push_back(QStringLiteral("1920x1080x1"));
+    audit.notes.push_back(QStringLiteral("heuristic note"));
+    audit.confidence = Confidence::Confirmed;
+
+    const QJsonObject j = ResourceMemoryAuditToJson(audit);
+    CHECK(j.value(QStringLiteral("totalResources")).toInt() == 3);
+    CHECK(j.value(QStringLiteral("totalBytes")).toDouble() == double(3u * 1024u * 1024u));
+    CHECK(j.value(QStringLiteral("totalMiB")).toDouble() == 3.0);
+    CHECK(j.value(QStringLiteral("confidence")).toString() == QStringLiteral("confirmed"));
+
+    const QJsonArray largest = j.value(QStringLiteral("largestResources")).toArray();
+    REQUIRE(largest.size() == 1);
+    const QJsonObject r = largest[0].toObject();
+    CHECK(r.value(QStringLiteral("name")).toString() == QStringLiteral("GBufferAlbedo"));
+    CHECK(r.value(QStringLiteral("width")).toInt() == 1920);
+    CHECK(r.value(QStringLiteral("format")).toString() == QStringLiteral("R8G8B8A8_UNORM"));
+
+    const QJsonObject ta = j.value(QStringLiteral("textureAudit")).toObject();
+    CHECK(ta.value(QStringLiteral("count")).toInt() == 1);
+    CHECK(ta.value(QStringLiteral("missingMipChain")).toInt() == 1);
+    CHECK(ta.value(QStringLiteral("byFormat")).toObject().value(
+              QStringLiteral("R8G8B8A8_UNORM")).toInt() == 1);
+    CHECK(ta.value(QStringLiteral("dimensions")).toArray().size() == 1);
+
+    const QJsonArray notes = j.value(QStringLiteral("notes")).toArray();
+    REQUIRE(notes.size() == 1);
+    CHECK(notes[0].toString() == QStringLiteral("heuristic note"));
+  }
+
+  // ---- lifetime rows -----------------------------------------------------
+  {
+    ResourceLifetimeResult lifetime;
+    lifetime.available = true;
+    lifetime.scannedEventCount = 6;
+
+    ResourceLifetimeRow row;
+    row.name = QStringLiteral("DepthBuffer");
+    row.type = QStringLiteral("Texture");
+    row.byteSize = 1024;
+    row.observedEventCount = 2;
+    row.firstEventId = 11;
+    row.lastEventId = 30;
+    row.confidence = Confidence::Confirmed;
+
+    ResourceAccess access;
+    access.eventId = 11;
+    access.name = QStringLiteral("DepthBuffer");
+    access.usage = ResourceUsage::RenderTarget;
+    row.accesses.push_back(access);
+    lifetime.rows.push_back(row);
+
+    const QJsonObject j = ResourceLifetimeToJson(lifetime);
+    CHECK(j.value(QStringLiteral("available")).toBool() == true);
+    CHECK(j.value(QStringLiteral("scannedEventCount")).toInt() == 6);
+    CHECK(j.value(QStringLiteral("rowCount")).toInt() == 1);
+
+    const QJsonArray rows = j.value(QStringLiteral("rows")).toArray();
+    REQUIRE(rows.size() == 1);
+    const QJsonObject r = rows[0].toObject();
+    CHECK(r.value(QStringLiteral("observedEventCount")).toInt() == 2);
+    CHECK(r.value(QStringLiteral("firstEventId")).toInt() == 11);
+    CHECK(r.value(QStringLiteral("lastEventId")).toInt() == 30);
+    CHECK(r.value(QStringLiteral("accesses")).toArray().size() == 1);
+  }
+
+  // ---- unused-resource candidates: low confidence + limitation -----------
+  {
+    UnusedResourceResult unused;
+    unused.available = true;
+    unused.scannedEventCount = 6;
+    unused.confidence = Confidence::Low;
+    unused.limitation = QStringLiteral("only bound resources are observed");
+
+    UnusedResource u;
+    u.name = QStringLiteral("OrphanTex");
+    u.type = QStringLiteral("Texture");
+    u.byteSize = 4096;
+    unused.candidates.push_back(u);
+
+    const QJsonObject j = UnusedResourceResultToJson(unused);
+    CHECK(j.value(QStringLiteral("available")).toBool() == true);
+    CHECK(j.value(QStringLiteral("scannedEventCount")).toInt() == 6);
+    CHECK(j.value(QStringLiteral("candidateCount")).toInt() == 1);
+    CHECK(j.value(QStringLiteral("confidence")).toString() == QStringLiteral("low"));
+    CHECK(j.value(QStringLiteral("limitation")).toString() ==
+          QStringLiteral("only bound resources are observed"));
+
+    const QJsonArray candidates = j.value(QStringLiteral("candidates")).toArray();
+    REQUIRE(candidates.size() == 1);
+    CHECK(candidates[0].toObject().value(QStringLiteral("name")).toString() ==
+          QStringLiteral("OrphanTex"));
+  }
+
+  // ---- leak candidates: reason + low confidence --------------------------
+  {
+    LeakResult leak;
+    leak.available = true;
+    leak.scannedEventCount = 6;
+    leak.confidence = Confidence::Low;
+    leak.limitation = QStringLiteral("single frame cannot prove a leak");
+
+    LeakCandidate c;
+    c.name = QStringLiteral("Transient");
+    c.type = QStringLiteral("Texture");
+    c.byteSize = 8192;
+    c.createdEventId = 42;
+    c.lastEventId = 42;
+    c.observedEventCount = 1;
+    c.reason = QStringLiteral("single-use");
+    c.confidence = Confidence::Low;
+    leak.candidates.push_back(c);
+
+    const QJsonObject j = LeakResultToJson(leak);
+    CHECK(j.value(QStringLiteral("candidateCount")).toInt() == 1);
+    CHECK(j.value(QStringLiteral("confidence")).toString() == QStringLiteral("low"));
+    CHECK(j.value(QStringLiteral("limitation")).toString() ==
+          QStringLiteral("single frame cannot prove a leak"));
+
+    const QJsonArray candidates = j.value(QStringLiteral("candidates")).toArray();
+    REQUIRE(candidates.size() == 1);
+    const QJsonObject o = candidates[0].toObject();
+    CHECK(o.value(QStringLiteral("name")).toString() == QStringLiteral("Transient"));
+    CHECK(o.value(QStringLiteral("observedEventCount")).toInt() == 1);
+    CHECK(o.value(QStringLiteral("reason")).toString() == QStringLiteral("single-use"));
+    CHECK(o.value(QStringLiteral("confidence")).toString() == QStringLiteral("low"));
+  }
+}
+
+TEST_CASE("MCP pipeline snapshot and diff model", "[mcp][analysis]")
+{
+  using namespace MCP;
+
+  // ---- diff result: field/shader changes serialise deterministically -----
+  {
+    PipelineDiffResult diff;
+    diff.available = true;
+    diff.eventIdA = 12;
+    diff.eventIdB = 40;
+    diff.hasChanges = true;
+    diff.inspectedStages = QStringList() << QStringLiteral("vertex") << QStringLiteral("pixel");
+    diff.confidence = Confidence::Confirmed;
+    diff.limitation = QStringLiteral("snapshots are flattened to dotted paths only");
+
+    PipelineFieldChange field;
+    field.path = QStringLiteral("rasterizer.cullMode");
+    field.group = QStringLiteral("rasterizer");
+    field.before = QStringLiteral("Back");
+    field.after = QStringLiteral("None");
+    field.beforeValue = QStringLiteral("Back");
+    field.afterValue = QStringLiteral("None");
+    diff.changes.push_back(field);
+
+    PipelineShaderChange shader;
+    shader.stage = QStringLiteral("pixel");
+    shader.before = QStringLiteral("ps_main_old");
+    shader.after = QStringLiteral("ps_main");
+    diff.shaderChanges.push_back(shader);
+
+    const QJsonObject j = PipelineDiffResultToJson(diff);
+    CHECK(j.value(QStringLiteral("available")).toBool() == true);
+    CHECK(j.value(QStringLiteral("eventIdA")).toInt() == 12);
+    CHECK(j.value(QStringLiteral("eventIdB")).toInt() == 40);
+    CHECK(j.value(QStringLiteral("hasChanges")).toBool() == true);
+    CHECK(j.value(QStringLiteral("changeCount")).toInt() == 1);
+    CHECK(j.value(QStringLiteral("confidence")).toString() == QStringLiteral("confirmed"));
+    CHECK(j.value(QStringLiteral("limitation")).toString() ==
+          QStringLiteral("snapshots are flattened to dotted paths only"));
+
+    const QJsonArray stages = j.value(QStringLiteral("inspectedStages")).toArray();
+    REQUIRE(stages.size() == 2);
+    CHECK(stages[0].toString() == QStringLiteral("vertex"));
+    CHECK(stages[1].toString() == QStringLiteral("pixel"));
+
+    const QJsonArray changes = j.value(QStringLiteral("changes")).toArray();
+    REQUIRE(changes.size() == 1);
+    const QJsonObject c = changes[0].toObject();
+    CHECK(c.value(QStringLiteral("path")).toString() == QStringLiteral("rasterizer.cullMode"));
+    CHECK(c.value(QStringLiteral("group")).toString() == QStringLiteral("rasterizer"));
+    CHECK(c.value(QStringLiteral("before")).toString() == QStringLiteral("Back"));
+    CHECK(c.value(QStringLiteral("after")).toString() == QStringLiteral("None"));
+    CHECK(c.value(QStringLiteral("beforeValue")).toString() == QStringLiteral("Back"));
+    CHECK(c.value(QStringLiteral("afterValue")).toString() == QStringLiteral("None"));
+
+    const QJsonArray shaderChanges = j.value(QStringLiteral("shaderChanges")).toArray();
+    REQUIRE(shaderChanges.size() == 1);
+    const QJsonObject s = shaderChanges[0].toObject();
+    CHECK(s.value(QStringLiteral("stage")).toString() == QStringLiteral("pixel"));
+    CHECK(s.value(QStringLiteral("before")).toString() == QStringLiteral("ps_main_old"));
+    CHECK(s.value(QStringLiteral("after")).toString() == QStringLiteral("ps_main"));
+
+    // Human-readable messages lead with the shader stage change, then the
+    // non-shader field changes.
+    const QJsonArray text = j.value(QStringLiteral("changesText")).toArray();
+    REQUIRE(text.size() == 2);
+    CHECK(text[0].toString() == QStringLiteral("Shader pixel: ps_main_old -> ps_main"));
+    CHECK(text[1].toString() == QStringLiteral("rasterizer.cullMode: Back -> None"));
+  }
+
+  // ---- diff with no changes keeps changeCount at zero --------------------
+  {
+    PipelineDiffResult same;
+    same.eventIdA = 12;
+    same.eventIdB = 12;
+    same.hasChanges = false;
+    same.confidence = Confidence::Confirmed;
+
+    const QJsonObject j = PipelineDiffResultToJson(same);
+    CHECK(j.value(QStringLiteral("hasChanges")).toBool() == false);
+    CHECK(j.value(QStringLiteral("changeCount")).toInt() == 0);
+    CHECK(j.value(QStringLiteral("changes")).toArray().isEmpty());
+    CHECK(j.value(QStringLiteral("changesText")).toArray().isEmpty());
+  }
+
+  // ---- stage enumeration: union of both snapshots in canonical order -----
+  {
+    QJsonObject shaderA;
+    shaderA[QStringLiteral("vertex")] = QJsonObject();
+    shaderA[QStringLiteral("pixel")] = QJsonObject();
+
+    QJsonObject shaderB;
+    shaderB[QStringLiteral("pixel")] = QJsonObject();
+    shaderB[QStringLiteral("compute")] = QJsonObject();
+
+    QJsonObject stateA;
+    stateA[QStringLiteral("shaders")] = shaderA;
+    QJsonObject stateB;
+    stateB[QStringLiteral("shaders")] = shaderB;
+
+    const QStringList stages = SnapshotStagesFromPipelineJson(stateA, stateB);
+    REQUIRE(stages.size() == 3);
+    CHECK(stages[0] == QStringLiteral("vertex"));
+    CHECK(stages[1] == QStringLiteral("pixel"));
+    CHECK(stages[2] == QStringLiteral("compute"));
+
+    // A stage present in only one snapshot still enumerates.
+    QJsonObject shaderOnly;
+    shaderOnly[QStringLiteral("mesh")] = QJsonObject();
+    QJsonObject stateC;
+    stateC[QStringLiteral("shaders")] = shaderOnly;
+    const QStringList meshOnly = SnapshotStagesFromPipelineJson(QJsonObject(), stateC);
+    REQUIRE(meshOnly.size() == 1);
+    CHECK(meshOnly[0] == QStringLiteral("mesh"));
+
+    // Two snapshots with no shaders object yield no stages.
+    CHECK(SnapshotStagesFromPipelineJson(QJsonObject(), QJsonObject()).isEmpty());
+  }
 }
 
 #endif    // ENABLE_UNIT_TESTS
