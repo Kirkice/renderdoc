@@ -123,7 +123,7 @@ HttpServer::~HttpServer()
   }
 }
 
-bool HttpServer::Start(quint16 port, QString &errorOut)
+bool HttpServer::Start(quint16 port, bool requireToken, QString &errorOut)
 {
   errorOut.clear();
 
@@ -148,6 +148,7 @@ bool HttpServer::Start(quint16 port, QString &errorOut)
   m_Port = m_Server->serverPort();
   {
     QMutexLocker lock(&m_Lock);
+    m_RequireToken = requireToken;
     m_AccessToken = QUuid::createUuid().toString();
     m_AccessToken.remove(QLatin1Char('{'));
     m_AccessToken.remove(QLatin1Char('}'));
@@ -191,6 +192,7 @@ void HttpServer::Stop()
   {
     QMutexLocker lock(&m_Lock);
     m_Sessions.clear();
+    m_RequireToken = false;
     m_AccessToken.clear();
   }
 }
@@ -206,6 +208,12 @@ QString HttpServer::AccessToken() const
 {
   QMutexLocker lock(&m_Lock);
   return m_AccessToken;
+}
+
+bool HttpServer::RequiresToken() const
+{
+  QMutexLocker lock(&m_Lock);
+  return m_RequireToken;
 }
 
 ServerStatus HttpServer::Status() const
@@ -364,8 +372,9 @@ bool HttpServer::ParseRequest(QByteArray &buffer, HttpRequest &req, bool &badReq
   const QString authorization = req.headers.value(QStringLiteral("authorization"));
   {
     QMutexLocker lock(&m_Lock);
-    req.authorized = !m_AccessToken.isEmpty() &&
-                     authorization == QStringLiteral("Bearer %1").arg(m_AccessToken);
+    req.authorized = !m_RequireToken ||
+                     (!m_AccessToken.isEmpty() &&
+                      authorization == QStringLiteral("Bearer %1").arg(m_AccessToken));
   }
 
   const QString accept = req.headers.value(QStringLiteral("accept")).toLower();

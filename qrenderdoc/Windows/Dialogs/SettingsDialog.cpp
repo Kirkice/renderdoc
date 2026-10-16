@@ -204,6 +204,7 @@ SettingsDialog::SettingsDialog(ICaptureContext &ctx, QWidget *parent)
 
   ui->MCP_Enabled->setChecked(m_Ctx.Config().MCP_Enabled);
   ui->MCP_Port->setValue(m_Ctx.Config().MCP_Port);
+  ui->MCP_RequireToken->setChecked(m_Ctx.Config().MCP_RequireToken);
   ui->MCP_AllowSensitiveData->setChecked(m_Ctx.Config().MCP_AllowSensitiveData);
   ui->MCP_MaliDevice->setText(m_Ctx.Config().MCP_MaliDevice);
   ui->MCP_MaliExtraArgs->setText(m_Ctx.Config().MCP_MaliExtraArgs);
@@ -592,6 +593,16 @@ void SettingsDialog::on_MCP_Port_valueChanged(int value)
     return;
 
   m_Ctx.Config().MCP_Port = value;
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_MCP_RequireToken_toggled(bool checked)
+{
+  if(m_Init)
+    return;
+
+  m_Ctx.Config().MCP_RequireToken = ui->MCP_RequireToken->isChecked();
 
   m_Ctx.Config().Save();
 }

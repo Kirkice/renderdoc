@@ -963,7 +963,7 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
 
   // Port 0 lets the OS pick a free ephemeral port, avoiding collisions.
   QString err;
-  REQUIRE(server.Start(0, err));
+  REQUIRE(server.Start(0, false, err));
   REQUIRE(server.IsRunning());
   const quint16 port = server.Port();
   REQUIRE(port != 0);
@@ -979,8 +979,9 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
 
   const QByteArray token = server.AccessToken().toUtf8();
   REQUIRE_FALSE(token.isEmpty());
+  CHECK_FALSE(server.RequiresToken());
 
-  const QByteArray initResp = HttpRoundTrip(sock, initBody, QByteArray(), token, 5000);
+  const QByteArray initResp = HttpRoundTrip(sock, initBody, QByteArray(), QByteArray(), 5000);
   REQUIRE_FALSE(initResp.isEmpty());
   CHECK(initResp.startsWith("HTTP/1.1 200"));
 
@@ -996,7 +997,7 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
 
   // ---- a second request on the same keep-alive connection -----------------
   const QByteArray listBody = QByteArray("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
-  const QByteArray listResp = HttpRoundTrip(sock, listBody, sessionHeader, token, 5000);
+  const QByteArray listResp = HttpRoundTrip(sock, listBody, sessionHeader, QByteArray(), 5000);
   REQUIRE_FALSE(listResp.isEmpty());
   CHECK(listResp.startsWith("HTTP/1.1 200"));
 
@@ -1008,14 +1009,14 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
   CHECK(tools[0].toObject().value(QStringLiteral("annotations")).toObject().contains(
       QStringLiteral("readOnlyHint")));
 
-  // The loopback listener is still an authorization boundary: neither a bare
-  // endpoint nor a valid token for another path or media type can reach MCP.
+  // Path and media-type validation apply even when the default local server does
+  // not require a bearer token.
   QTcpSocket rejected;
   rejected.connectToHost(QHostAddress::LocalHost, port);
   REQUIRE(WaitFor([&]() { return rejected.state() == QAbstractSocket::ConnectedState; }, 5000));
 
   const QByteArray noAuth = HttpRoundTrip(rejected, initBody, QByteArray(), QByteArray(), 5000);
-  CHECK(noAuth.startsWith("HTTP/1.1 401"));
+  CHECK(noAuth.startsWith("HTTP/1.1 200"));
 
   const QByteArray wrongPath =
       HttpRoundTrip(rejected, initBody, QByteArray(), token, 5000, QByteArray("/other"));
@@ -1029,6 +1030,24 @@ TEST_CASE("MCP loopback transport smoke test", "[mcp][network]")
   sock.disconnectFromHost();
   server.Stop();
   CHECK_FALSE(server.IsRunning());
+
+  // Enabling the explicit safer mode restores bearer-token enforcement.
+  REQUIRE(server.Start(0, true, err));
+  CHECK(server.RequiresToken());
+
+  QTcpSocket secured;
+  secured.connectToHost(QHostAddress::LocalHost, server.Port());
+  REQUIRE(WaitFor([&]() { return secured.state() == QAbstractSocket::ConnectedState; }, 5000));
+  const QByteArray securedNoAuth =
+      HttpRoundTrip(secured, initBody, QByteArray(), QByteArray(), 5000);
+  CHECK(securedNoAuth.startsWith("HTTP/1.1 401"));
+
+  const QByteArray securedToken = server.AccessToken().toUtf8();
+  const QByteArray securedInit =
+      HttpRoundTrip(secured, initBody, QByteArray(), securedToken, 5000);
+  CHECK(securedInit.startsWith("HTTP/1.1 200"));
+  secured.disconnectFromHost();
+  server.Stop();
 }
 
 TEST_CASE("MCP loopback tool calls are asynchronous and cancellable", "[mcp][network]")
@@ -1078,7 +1097,7 @@ TEST_CASE("MCP loopback tool calls are asynchronous and cancellable", "[mcp][net
   MCP::HttpServer server;
   server.SetRegistry(&registry);
   QString err;
-  REQUIRE(server.Start(0, err));
+  REQUIRE(server.Start(0, false, err));
 
   const QByteArray token = server.AccessToken().toUtf8();
   REQUIRE_FALSE(token.isEmpty());

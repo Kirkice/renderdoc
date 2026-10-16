@@ -4049,7 +4049,12 @@ void VulkanReplay::DestroyResources()
 
   SAFE_DELETE(m_pAMDCounters);
   SAFE_DELETE(m_pQCCounters);
-  SAFE_DELETE(m_pQCActionCallback);
+  // Note: m_pQCActionCallback is deliberately not released here. Its type is only
+  // forward-declared in vk_replay.h and defined inside vk_counters.cpp, so deleting it
+  // from this translation unit would delete an incomplete type (C4150) without running
+  // ~VulkanQCActionCallback. That callback is owned end-to-end by FetchCountersQC, which
+  // creates it via FillTimersQC and releases it before returning, mirroring how the AMD
+  // callback above is handled.
 
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
   SAFE_DELETE(m_pNVCounters);

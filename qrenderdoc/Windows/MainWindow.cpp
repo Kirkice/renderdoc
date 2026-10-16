@@ -161,7 +161,7 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   {
     const int port = ctx.Config().MCP_Port;
     QString error = QString();
-    if(!m_MCPServer->Start(quint16(port & 0xffff), error))
+    if(!m_MCPServer->Start(quint16(port & 0xffff), ctx.Config().MCP_RequireToken, error))
     {
       const QString message =
           QStringLiteral("Failed to start MCP server on 127.0.0.1:%1: %2").arg(port).arg(error);
@@ -1857,6 +1857,10 @@ void MainWindow::LoadInitialLayout()
         ToolWindowManager::AreaReference(ToolWindowManager::TopWindowSide,
                                          ui->toolWindowManager->areaOf(textureViewer), 0.2f));
   }
+
+  // Add the MCP controls after the saved or default layout has established the Event Browser area.
+  // Adding it during MainWindow construction uses an invalid tool-window area and prevents startup.
+  on_action_MCP_Server_triggered();
 }
 
 bool MainWindow::ErrorReportsAllowed()

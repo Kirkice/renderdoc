@@ -661,6 +661,11 @@ struct VulkanQCActionCallback : public VulkanActionCallback
     PostRedraw(eid, flags, cmd);
   }
 
+  // Unlike the AMD callback we have no per-command-buffer state to flush: the QC
+  // (libgsl) samples are opened/closed per-draw in PreDraw/PostDraw above, so
+  // there is nothing to end when a command buffer finishes recording.
+  void PreEndCommandBuffer(VkCommandBuffer cmd) override {}
+
   void AliasEvent(uint32_t primary, uint32_t alias) override
   {
     m_AliasEvents.push_back(make_rdcpair(primary, alias));

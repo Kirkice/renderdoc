@@ -52,7 +52,11 @@ namespace MCP
 // The MCP protocol revision this build implements. Clients negotiate down by
 // sending their own revision in the initialize handshake; we echo the negotiated
 // value back and reject anything newer than what we understand.
-static const char *const kLatestProtocolVersion = "2025-06-18";
+//
+// DSH's bundled MCP SDK 1.29 initializes using 2025-11-25. The qrenderdoc
+// Streamable HTTP surface used here (initialize, notifications, tools/list,
+// and tools/call) remains compatible with that revision.
+static const char *const kLatestProtocolVersion = "2025-11-25";
 static const char *const kServerName = "qrenderdoc";
 static const char *const kDefaultHost = "127.0.0.1";
 static const int kDefaultPort = 38967;

@@ -72,7 +72,8 @@ public:
   // Start listening on 127.0.0.1:port. Returns false and leaves `errorOut` set if
   // the socket can't be created or the address is already in use. Binding to
   // anything other than the loopback address is impossible by construction.
-  bool Start(quint16 port, QString &errorOut);
+  // When requireToken is false, any local process can call the server.
+  bool Start(quint16 port, bool requireToken, QString &errorOut);
 
   // Stop listening and drop every active session.
   // In-flight tool calls are cancelled and joined before this returns, so
@@ -98,9 +99,11 @@ public:
   int ActiveSessions() const;
 
   // A per-listener bearer token. It is regenerated every time Start() succeeds
-  // and must be sent as `Authorization: Bearer <token>` by HTTP clients.
-  // Intentionally not persisted: stopping qrenderdoc invalidates prior grants.
+  // and must be sent as `Authorization: Bearer <token>` by HTTP clients only when
+  // token authentication is enabled. It is not persisted.
   QString AccessToken() const;
+
+  bool RequiresToken() const;
 
   // A ready-to-display snapshot of the server state, used by the MCP status UI
   // and by diagnostics. `registeredTools` reflects the attached registry.
@@ -211,6 +214,7 @@ private:
   int m_TotalPendingRequests = 0;
   qint64 m_TotalPendingRequestBytes = 0;
   bool m_Stopping = false;
+  bool m_RequireToken = false;
   quint64 m_Generation = 0;
   QString m_AccessToken;
   QString m_LastError;

@@ -71,6 +71,7 @@ private slots:
   void on_AlwaysReplayLocally_toggled(bool checked);
   void on_MCP_Enabled_toggled(bool checked);
   void on_MCP_Port_valueChanged(int value);
+  void on_MCP_RequireToken_toggled(bool checked);
   void on_MCP_AllowSensitiveData_toggled(bool checked);
   void on_MCP_MaliDevice_textEdited(const QString &device);
   void on_MCP_MaliExtraArgs_textEdited(const QString &args);

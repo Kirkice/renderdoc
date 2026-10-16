@@ -119,9 +119,11 @@ public:
     setFocusPolicy(Qt::ClickFocus);
   }
 
-  void SetData(const SystemTraceChartData &data)
+  // The parameter is deliberately not named `data`: QWidget declares a member called `data`,
+  // so that name would shadow it (C4458).
+  void SetData(const SystemTraceChartData &newData)
   {
-    m_Data = data;
+    m_Data = newData;
     m_HasData = true;
     update();
   }
@@ -159,8 +161,11 @@ protected:
     const int marginTop = 12;
     const int marginBottom = 34;
 
-    m_PlotRect = QRectF(marginLeft, marginTop, qMax(10.0, width() - marginLeft - marginRight),
-                        qMax(10.0, height() - marginTop - marginBottom));
+    // Both operands are narrowed to double explicitly: qMax is a template and will not deduce a
+    // common type from a double literal and an int expression.
+    m_PlotRect = QRectF((double)marginLeft, (double)marginTop,
+                        qMax(10.0, (double)(width() - marginLeft - marginRight)),
+                        qMax(10.0, (double)(height() - marginTop - marginBottom)));
 
     const double span = trace.SpanSec() > 0.0 ? trace.SpanSec() : 1.0;
 
@@ -610,17 +615,17 @@ void SystemTraceViewer::updateHighlight()
 
   m_Correlation = CorrelateSystemTrace(m_Trace, actions, anchors);
 
-  SystemTraceChartData data;
-  data.trace = &m_Trace;
-  data.actions = m_Correlation.actions;
-  data.alignment = m_Correlation.alignment;
-  data.aligned = m_Correlation.aligned();
-  data.frameStartSec = m_Correlation.alignment.offsetSec;
-  data.frameEndSec = data.frameStartSec + m_FrameDuration;
-  data.frameNumber = frame;
-  data.highlightEvent = m_Ctx.CurSelectedEvent();
+  SystemTraceChartData chartData = {};
+  chartData.trace = &m_Trace;
+  chartData.actions = m_Correlation.actions;
+  chartData.alignment = m_Correlation.alignment;
+  chartData.aligned = m_Correlation.aligned();
+  chartData.frameStartSec = m_Correlation.alignment.offsetSec;
+  chartData.frameEndSec = chartData.frameStartSec + m_FrameDuration;
+  chartData.frameNumber = frame;
+  chartData.highlightEvent = m_Ctx.CurSelectedEvent();
 
-  m_Chart->SetData(data);
+  m_Chart->SetData(chartData);
 
   m_Alignment->setText(tr("Clock alignment: %1%2  |  %3")
                            .arg(ConfidenceName(m_Correlation.alignment.confidence))

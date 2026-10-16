@@ -476,7 +476,7 @@ This option overrides that and will always replay locally if the local context i
           <item row="19" column="0">
            <widget class="QLabel" name="mcpEnabledLabel">
             <property name="toolTip">
-             <string>Enables automatic startup of a local Model Context Protocol server bound to 127.0.0.1. Clients must use the runtime bearer token shown in Tools > MCP Server. Most tools are read-only; explicitly confirmed bookmark tools can update local bookmark data.</string>
+             <string>Enables automatic startup of a local Model Context Protocol server bound to 127.0.0.1. Token authentication is optional; without it, any local process can call the server.</string>
             </property>
             <property name="text">
              <string>Enable the local MCP server for AI agents</string>
@@ -486,7 +486,7 @@ This option overrides that and will always replay locally if the local context i
           <item row="19" column="1">
            <widget class="QCheckBox" name="MCP_Enabled">
             <property name="toolTip">
-             <string>Enables automatic startup of a local Model Context Protocol server bound to 127.0.0.1. Clients must use the runtime bearer token shown in Tools > MCP Server. Most tools are read-only; explicitly confirmed bookmark tools can update local bookmark data.</string>
+             <string>Enables automatic startup of a local Model Context Protocol server bound to 127.0.0.1. Token authentication is optional; without it, any local process can call the server.</string>
             </property>
             <property name="text">
              <string/>
@@ -517,6 +517,26 @@ This option overrides that and will always replay locally if the local context i
            </widget>
           </item>
           <item row="21" column="0">
+           <widget class="QLabel" name="mcpRequireTokenLabel">
+            <property name="toolTip">
+             <string>When disabled (the default), no bearer token is required and any local process can call the loopback MCP server.</string>
+            </property>
+            <property name="text">
+             <string>Require MCP bearer token (safer)</string>
+            </property>
+           </widget>
+          </item>
+          <item row="21" column="1">
+           <widget class="QCheckBox" name="MCP_RequireToken">
+            <property name="toolTip">
+             <string>When disabled (the default), no bearer token is required and any local process can call the loopback MCP server.</string>
+            </property>
+            <property name="text">
+             <string/>
+            </property>
+           </widget>
+          </item>
+          <item row="22" column="0">
            <widget class="QLabel" name="mcpSensitiveLabel">
             <property name="toolTip">
              <string>Allows MCP tools to return potentially sensitive data such as raw shader source, constant buffer contents, buffer bytes and captured vertex data. Only enable this when you trust the connected AI client.</string>
@@ -526,7 +546,7 @@ This option overrides that and will always replay locally if the local context i
             </property>
            </widget>
           </item>
-          <item row="21" column="1">
+          <item row="22" column="1">
            <widget class="QCheckBox" name="MCP_AllowSensitiveData">
             <property name="toolTip">
              <string>Allows MCP tools to return potentially sensitive data such as raw shader source, constant buffer contents, buffer bytes and captured vertex data. Only enable this when you trust the connected AI client.</string>
@@ -536,7 +556,7 @@ This option overrides that and will always replay locally if the local context i
             </property>
            </widget>
           </item>
-          <item row="22" column="0">
+          <item row="23" column="0">
            <widget class="QLabel" name="mcpMaliDeviceLabel">
             <property name="toolTip">
              <string>Optional Mali target device name. Leave empty to use the compiler default.</string>
@@ -546,14 +566,14 @@ This option overrides that and will always replay locally if the local context i
             </property>
            </widget>
           </item>
-          <item row="22" column="1">
+          <item row="23" column="1">
            <widget class="QLineEdit" name="MCP_MaliDevice">
             <property name="toolTip">
              <string>Optional Mali target device name. Leave empty to use the compiler default.</string>
             </property>
            </widget>
           </item>
-          <item row="23" column="0">
+          <item row="24" column="0">
            <widget class="QLabel" name="mcpMaliExtraArgsLabel">
             <property name="toolTip">
              <string>One literal extra command-line argument for Mali Offline Compiler, such as --metrics. Use the MCP tool extraArgs array for multiple separate arguments.</string>
@@ -563,14 +583,14 @@ This option overrides that and will always replay locally if the local context i
             </property>
            </widget>
           </item>
-          <item row="23" column="1">
+          <item row="24" column="1">
            <widget class="QLineEdit" name="MCP_MaliExtraArgs">
             <property name="toolTip">
              <string>One literal extra command-line argument for Mali Offline Compiler, such as --metrics. Use the MCP tool extraArgs array for multiple separate arguments.</string>
             </property>
            </widget>
           </item>
-          <item row="24" column="1">
+          <item row="25" column="1">
            <spacer name="verticalSpacer">
             <property name="orientation">
              <enum>Qt::Vertical</enum>

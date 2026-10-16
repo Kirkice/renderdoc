@@ -206,7 +206,9 @@ TraceCorrelation CorrelateSystemTrace(const SystemTrace &trace, const QVector<Tr
   {
     const double n = double(offsets.size());
     double sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
-    for(size_t i = 0; i < offsets.size(); i++)
+    // `i` is int (not size_t) so it matches QVector::operator[]'s index type; a size_t index
+    // would be a narrowing conversion (C4267).
+    for(int i = 0; i < offsets.size(); i++)
     {
       const double x = double(i);
       const double y = offsets[i];

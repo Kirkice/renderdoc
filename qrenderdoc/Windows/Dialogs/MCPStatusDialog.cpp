@@ -48,33 +48,46 @@ MCPStatusDialog::MCPStatusDialog(ICaptureContext &ctx, MCP::HttpServer *server, 
   setMinimumSize(QSize(320, 280));
   resize(360, 360);
 
+  // Preserve the purpose-built control-centre layout while deriving every colour from the
+  // active RenderDoc palette. This keeps the page visually coherent in every application theme.
   setStyleSheet(lit(R"(
-    MCPStatusDialog { background: #111820; color: #e8eef7; }
-    QFrame#header, QFrame#connection { background: #171f29; border: 1px solid #2c3949; border-radius: 7px; }
-    QLabel#title { color: #f6f8fc; font-size: 16px; font-weight: 700; }
-    QLabel#subtitle, QLabel#fieldCaption, QLabel#statCaption { color: #94a4b8; font-size: 11px; }
+    QFrame#header, QFrame#connection {
+      background: palette(alternate-base);
+      border: 1px solid palette(mid);
+      border-radius: 7px;
+    }
+    QLabel#title { font-size: 16px; font-weight: 700; }
+    QLabel#subtitle, QLabel#fieldCaption, QLabel#statCaption { font-size: 11px; }
     QLabel#fieldCaption, QLabel#statCaption { font-weight: 600; }
     QLabel#statusBadge {
-      border-radius: 9px; padding: 3px 8px; font-size: 10px; font-weight: 700;
-      background: #2a3442; color: #bdc9d8;
+      background: palette(mid);
+      color: palette(text);
+      border-radius: 9px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 700;
     }
-    QLabel#statusBadge[running="true"] { background: #17473e; color: #82e7cf; }
-    QLabel#statusBadge[warning="true"] { background: #4a3820; color: #f4c978; }
-    QLabel#state { color: #c5d0dd; font-size: 12px; }
-    QLabel#statValue { color: #f2f6fb; font-size: 15px; font-weight: 700; }
+    QLabel#statusBadge[running="true"] {
+      background: palette(highlight);
+      color: palette(highlighted-text);
+    }
+    QLabel#statusBadge[warning="true"] { background: palette(midlight); }
+    QLabel#state { font-size: 12px; }
+    QLabel#statValue { font-size: 15px; font-weight: 700; }
     QLabel#connectionValue {
-      background: #0e141c; border: 1px solid #2a3748; border-radius: 4px; color: #b8f0df;
-      font-family: Consolas, "Cascadia Mono", monospace; font-size: 11px; padding: 5px 6px;
+      background: palette(base);
+      border: 1px solid palette(mid);
+      border-radius: 4px;
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 11px;
+      padding: 5px 6px;
     }
-    QLabel#diagnosticValue { color: #9eafc4; font-size: 11px; }
-    QPushButton {
-      background: #243142; border: 1px solid #40536c; border-radius: 4px; color: #eaf0fa;
-      font-weight: 600; padding: 6px 10px;
+    QLabel#diagnosticValue { font-size: 11px; }
+    QPushButton { font-weight: 600; padding: 6px 10px; }
+    QPushButton#primaryButton {
+      background: palette(highlight);
+      color: palette(highlighted-text);
     }
-    QPushButton:hover { background: #30425a; border-color: #6082ac; }
-    QPushButton#primaryButton { background: #3a6bb3; border-color: #6094e2; }
-    QPushButton#primaryButton:hover { background: #4a7dca; }
-    QPushButton:disabled { color: #718096; background: #18212d; border-color: #2a3746; }
   )"));
 
   m_State = new QLabel(this);
@@ -221,7 +234,7 @@ void MCPStatusDialog::refresh()
   if(status.running && !status.endpoint.isEmpty())
   {
     m_Endpoint->setText(status.endpoint);
-    m_AccessToken->setText(m_Server->AccessToken());
+    m_AccessToken->setText(m_Server->RequiresToken() ? m_Server->AccessToken() : tr("Not required (unsafe)"));
   }
   else
   {
@@ -234,8 +247,10 @@ void MCPStatusDialog::refresh()
 
   const QString last = status.lastError.isEmpty() ? m_Server->LastError() : status.lastError;
   m_LastError->setText(last.isEmpty()
-                           ? tr("Loopback-only. The access token changes whenever the server restarts.")
-                           : tr("Error: %1").arg(last));
+                            ? (m_Server->RequiresToken()
+                                   ? tr("Loopback-only. The access token changes whenever the server restarts.")
+                                   : tr("Warning: token authentication is disabled. Any local process can call this MCP server."))
+                            : tr("Error: %1").arg(last));
   m_Toggle->setText(status.running ? tr("Stop server") : tr("Start server"));
   m_Copy->setEnabled(status.running && !status.endpoint.isEmpty());
 
@@ -248,7 +263,7 @@ bool MCPStatusDialog::startServer()
 
   const int port = m_Ctx.Config().MCP_Port;
   QString error;
-  if(!m_Server->Start(quint16(port & 0xffff), error))
+  if(!m_Server->Start(quint16(port & 0xffff), m_Ctx.Config().MCP_RequireToken, error))
   {
     RDDialog::critical(this, tr("MCP Server"),
                        tr("Could not start the MCP server on 127.0.0.1:%1.\n\n%2")
@@ -290,15 +305,21 @@ void MCPStatusDialog::on_copy_clicked()
     return;
 
   const QString endpoint = m_Endpoint->text();
-  const QString token = m_Server->AccessToken();
-  if(endpoint.isEmpty() || token.isEmpty())
+  if(endpoint.isEmpty())
     return;
 
-  QJsonObject headers;
-  headers[QStringLiteral("Authorization")] = QStringLiteral("Bearer %1").arg(token);
   QJsonObject config;
   config[QStringLiteral("url")] = endpoint;
-  config[QStringLiteral("headers")] = headers;
+  if(m_Server->RequiresToken())
+  {
+    const QString token = m_Server->AccessToken();
+    if(token.isEmpty())
+      return;
+
+    QJsonObject headers;
+    headers[QStringLiteral("Authorization")] = QStringLiteral("Bearer %1").arg(token);
+    config[QStringLiteral("headers")] = headers;
+  }
 
   QClipboard *clipboard = QApplication::clipboard();
   if(clipboard != NULL)

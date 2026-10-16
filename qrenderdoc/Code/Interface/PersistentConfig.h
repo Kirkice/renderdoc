@@ -814,6 +814,14 @@ DECLARE_REFLECTION_STRUCT(BugReport);
   CONFIG_SETTING_VAL(public, int, int, MCP_Port, 38967)                                            \
                                                                                                    \
   DOCUMENT(                                                                                        \
+      "``True`` if MCP clients must present the runtime bearer token. This defaults to ``False`` " \
+      "for easier local setup, but disabling token authentication lets any local process call the " \
+      "loopback MCP server.\n"                                                                    \
+      ""                                                                                           \
+      ":type: bool");                                                                              \
+  CONFIG_SETTING_VAL(public, bool, bool, MCP_RequireToken, false)                                  \
+                                                                                                    \
+  DOCUMENT(                                                                                        \
       "``True`` if MCP tools are allowed to return bulk capture data such as raw buffer and "      \
       "texture contents or shader source text. This is the sensitive-data boundary: when "         \
       "``False`` (the default) those tools report metadata only, so a local client cannot use "    \
@@ -821,7 +829,7 @@ DECLARE_REFLECTION_STRUCT(BugReport);
       ""                                                                                           \
       ":type: bool");                                                                              \
   CONFIG_SETTING_VAL(public, bool, bool, MCP_AllowSensitiveData, false)                            \
-                                                                                                   \
+                                                                                                    \
   DOCUMENT(                                                                                        \
       "Absolute path to the Mali Offline Compiler (``malioc``/``malioc.exe``) that the MCP "       \
       "external-tool integration should run. Either the executable itself or the directory that "  \
