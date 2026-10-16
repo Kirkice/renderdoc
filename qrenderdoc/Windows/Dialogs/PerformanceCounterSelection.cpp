@@ -52,6 +52,7 @@ enum class CounterFamily
   NVIDIA,
   VulkanExtended,
   ARM,
+  Qualcomm,
 };
 
 CounterFamily GetCounterFamily(GPUCounter counter)
@@ -76,6 +77,10 @@ CounterFamily GetCounterFamily(GPUCounter counter)
   {
     return CounterFamily::ARM;
   }
+  else if(IsQualcommCounter(counter))
+  {
+    return CounterFamily::Qualcomm;
+  }
 
   return CounterFamily::Generic;
 }
@@ -90,6 +95,7 @@ QString ToString(CounterFamily family)
     case CounterFamily::NVIDIA: return lit("NVIDIA");
     case CounterFamily::VulkanExtended: return lit("Vulkan Extended");
     case CounterFamily::ARM: return lit("ARM");
+    case CounterFamily::Qualcomm: return lit("Qualcomm");
     case CounterFamily::Unknown: return lit("Unknown");
   }
 

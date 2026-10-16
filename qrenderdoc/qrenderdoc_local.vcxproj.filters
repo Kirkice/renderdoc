@@ -363,6 +363,9 @@
     <ClCompile Include="Windows\Dialogs\MaliAnalysisDialog.cpp">
       <Filter>Windows\Dialogs</Filter>
     </ClCompile>
+    <ClCompile Include="Windows\Dialogs\SystemTraceViewer.cpp">
+      <Filter>Windows\Dialogs</Filter>
+    </ClCompile>
     <ClCompile Include="Widgets\OrderedListEditor.cpp">
       <Filter>Widgets</Filter>
     </ClCompile>
@@ -715,6 +718,15 @@
       <Filter>Widgets</Filter>
     </ClCompile>
     <ClCompile Include="Code\RGPInterop.cpp">
+      <Filter>Code</Filter>
+    </ClCompile>
+    <ClCompile Include="Code\QCInterop.cpp">
+      <Filter>Code</Filter>
+    </ClCompile>
+    <ClCompile Include="Code\SystemTrace.cpp">
+      <Filter>Code</Filter>
+    </ClCompile>
+    <ClCompile Include="Code\SystemTraceCorrelation.cpp">
       <Filter>Code</Filter>
     </ClCompile>
     <ClCompile Include="$(IntDir)generated\moc_CollapseGroupBox.cpp">
@@ -1154,6 +1166,15 @@
     <ClInclude Include="Code\RGPInterop.h">
       <Filter>Code</Filter>
     </ClInclude>
+    <ClInclude Include="Code\QCInterop.h">
+      <Filter>Code</Filter>
+    </ClInclude>
+    <ClInclude Include="Code\SystemTrace.h">
+      <Filter>Code</Filter>
+    </ClInclude>
+    <ClInclude Include="Code\SystemTraceCorrelation.h">
+      <Filter>Code</Filter>
+    </ClInclude>
     <ClInclude Include="$(IntDir)generated\ui_ExtensionManager.h">
       <Filter>Generated Files</Filter>
     </ClInclude>
@@ -1191,6 +1212,9 @@
       <Filter>Code\Interface</Filter>
     </ClInclude>
     <ClInclude Include="Windows\Dialogs\MaliAnalysisDialog.h">
+      <Filter>Windows\Dialogs</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\Dialogs\SystemTraceViewer.h">
       <Filter>Windows\Dialogs</Filter>
     </ClInclude>
     <ClInclude Include="Code\Interface\Helpers.h">

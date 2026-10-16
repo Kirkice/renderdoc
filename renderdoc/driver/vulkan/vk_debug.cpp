@@ -31,6 +31,7 @@
 #include "driver/ihv/amd/amd_counters.h"
 #include "driver/ihv/amd/official/GPUPerfAPI/Include/gpu_perf_api_vk.h"
 #include "driver/ihv/nv/nv_vk_counters.h"
+#include "driver/ihv/qc/qc_counters.h"
 #include "driver/shaders/spirv/spirv_common.h"
 #include "driver/shaders/spirv/spirv_compile.h"
 #include "driver/shaders/spirv/spirv_editor.h"
@@ -3989,6 +3990,21 @@ void VulkanReplay::CreateResources()
         m_pAMDCounters = NULL;
       }
     }
+    else if(vendor == GPUVendor::Qualcomm)
+    {
+      RDCLOG("Qualcomm Adreno GPU detected - trying to initialise Qualcomm counters");
+      QCCounters *countersQC = new QCCounters();
+      if(countersQC &&
+         countersQC->Init(QCCounters::ApiType::Vk, NULL, m_pDriver->GetDeviceProps().deviceName))
+      {
+        m_pQCCounters = countersQC;
+      }
+      else
+      {
+        delete countersQC;
+        m_pQCCounters = NULL;
+      }
+    }
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
     else if(vendor == GPUVendor::nVidia)
     {
@@ -4032,6 +4048,8 @@ void VulkanReplay::DestroyResources()
   m_PatchedShaderFeedback.Destroy(m_pDriver);
 
   SAFE_DELETE(m_pAMDCounters);
+  SAFE_DELETE(m_pQCCounters);
+  SAFE_DELETE(m_pQCActionCallback);
 
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
   SAFE_DELETE(m_pNVCounters);

@@ -36,6 +36,7 @@
 #include "strings/string_utils.h"
 
 #include "driver/ihv/nv/nv_vk_counters.h"
+#include "driver/ihv/qc/qc_counters.h"
 
 RDOC_EXTERN_CONFIG(bool, Vulkan_Debug_SingleSubmitFlushing);
 
@@ -187,6 +188,11 @@ rdcarray<GPUCounter> VulkanReplay::EnumerateCounters()
     ret.append(m_pAMDCounters->GetPublicCounterIds());
   }
 
+  if(m_pQCCounters)
+  {
+    ret.append(m_pQCCounters->GetPublicCounterIds());
+  }
+
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
   if(m_pNVCounters)
   {
@@ -211,6 +217,12 @@ CounterDescription VulkanReplay::DescribeCounter(GPUCounter counterID)
 
       return desc;
     }
+  }
+
+  /////Qualcomm/////
+  if(IsQualcommCounter(counterID) && m_pQCCounters)
+  {
+    return m_pQCCounters->GetCounterDescription(counterID);
   }
 
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
@@ -586,6 +598,184 @@ rdcarray<CounterResult> VulkanReplay::FetchCountersAMD(const rdcarray<GPUCounter
   std::sort(ret.begin(), ret.end());
 
   m_pAMDCounters->EndMeasurementMode();
+
+  return ret;
+}
+
+struct VulkanQCActionCallback : public VulkanActionCallback
+{
+  VulkanQCActionCallback(WrappedVulkan *dev, VulkanReplay *rp, uint32_t &sampleIndex,
+                         rdcarray<uint32_t> &eventIDs)
+      : m_pDriver(dev), m_pReplay(rp), m_pSampleId(&sampleIndex), m_pEventIds(&eventIDs)
+  {
+    m_pDriver->SetActionCB(this);
+  }
+
+  virtual ~VulkanQCActionCallback() { m_pDriver->SetActionCB(NULL); }
+
+  void PreDraw(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
+  {
+    m_pEventIds->push_back(eid);
+
+    m_pReplay->GetQCCounters()->BeginSample(eid);
+
+    ++*m_pSampleId;
+  }
+
+  bool PostDraw(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
+  {
+    m_pReplay->GetQCCounters()->EndSample();
+    return false;
+  }
+
+  void PostRedraw(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override {}
+  // we don't need to distinguish, call the Draw functions
+  void PreDispatch(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
+  {
+    PreDraw(eid, flags, cmd);
+  }
+  bool PostDispatch(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
+  {
+    return PostDraw(eid, flags, cmd);
+  }
+  void PostRedispatch(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
+  {
+    PostRedraw(eid, flags, cmd);
+  }
+  void PreMisc(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
+  {
+    if(flags & ActionFlags::PassBoundary)
+      return;
+    PreDraw(eid, flags, cmd);
+  }
+  bool PostMisc(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
+  {
+    if(flags & ActionFlags::PassBoundary)
+      return false;
+    return PostDraw(eid, flags, cmd);
+  }
+  void PostRemisc(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
+  {
+    if(flags & ActionFlags::PassBoundary)
+      return;
+    PostRedraw(eid, flags, cmd);
+  }
+
+  void AliasEvent(uint32_t primary, uint32_t alias) override
+  {
+    m_AliasEvents.push_back(make_rdcpair(primary, alias));
+  }
+  bool SplitSecondary() override { return false; }
+  bool ForceLoadRPs() override { return false; }
+  void PreCmdExecute(uint32_t baseEid, uint32_t secondaryFirst, uint32_t secondaryLast,
+                     VkCommandBuffer cmd) override
+  {
+  }
+  void PostCmdExecute(uint32_t baseEid, uint32_t secondaryFirst, uint32_t secondaryLast,
+                      VkCommandBuffer cmd) override
+  {
+  }
+
+  uint32_t *m_pSampleId;
+  WrappedVulkan *m_pDriver;
+  VulkanReplay *m_pReplay;
+  rdcarray<uint32_t> *m_pEventIds;
+  // events which are the 'same' from being the same command buffer resubmitted
+  // multiple times in the frame. We will only get the full callback when we're
+  // recording the command buffer, and will be given the first EID. After that
+  // we'll just be told which other EIDs alias this event.
+  rdcarray<rdcpair<uint32_t, uint32_t>> m_AliasEvents;
+};
+
+void VulkanReplay::FillTimersQC(uint32_t *eventStartID, uint32_t *sampleIndex,
+                                rdcarray<uint32_t> *eventIDs)
+{
+  uint32_t maxEID = m_pDriver->GetMaxEID();
+
+  RDCASSERT(m_pQCActionCallback == NULL);
+
+  m_pQCActionCallback = new VulkanQCActionCallback(m_pDriver, this, *sampleIndex, *eventIDs);
+
+  // replay the events to perform all the queries
+  m_pDriver->ReplayLog(*eventStartID, maxEID, eReplay_Full);
+}
+
+rdcarray<CounterResult> VulkanReplay::FetchCountersQC(const rdcarray<GPUCounter> &counters)
+{
+  // Defensive: callers already filter empty sets, but with no counters GetPassCount()
+  // returns 0, the pass loop is skipped entirely and the alias callback below would
+  // still be null when dereferenced.
+  if(counters.empty())
+    return {};
+
+  m_pQCCounters->DisableAllCounters();
+
+  // enable counters it needs
+  for(size_t i = 0; i < counters.size(); i++)
+  {
+    // This function is only called internally, and violating this assertion means our
+    // caller has invoked this method incorrectly
+    RDCASSERT(IsQualcommCounter(counters[i]));
+    m_pQCCounters->EnableCounter(counters[i]);
+  }
+
+  uint32_t passCount = m_pQCCounters->GetPassCount();
+
+  uint32_t sampleIndex = 0;
+
+  rdcarray<uint32_t> eventIDs;
+
+  for(uint32_t i = 0; i < passCount; i++)
+  {
+    m_pQCCounters->BeginPass(i);
+
+    uint32_t eventStartID = 0;
+
+    sampleIndex = 0;
+
+    eventIDs.clear();
+
+    // delete any callback from a previous pass, we only use it for EID aliasing
+    SAFE_DELETE(m_pQCActionCallback);
+
+    FillTimersQC(&eventStartID, &sampleIndex, &eventIDs);
+
+    // leave this one alive, it will be deleted below
+
+    m_pQCCounters->EndPass();
+  }
+
+  rdcarray<CounterResult> ret = m_pQCCounters->GetCounterData(eventIDs, counters);
+
+  for(size_t i = 0; i < m_pQCActionCallback->m_AliasEvents.size(); i++)
+  {
+    for(size_t c = 0; c < counters.size(); c++)
+    {
+      CounterResult search;
+      search.counter = counters[c];
+      search.eventId = m_pQCActionCallback->m_AliasEvents[i].first;
+
+      // find the result we're aliasing
+      int32_t idx = ret.indexOf(search);
+      if(idx >= 0)
+      {
+        // duplicate the result and append
+        CounterResult aliased = ret[idx];
+        aliased.eventId = m_pQCActionCallback->m_AliasEvents[i].second;
+        ret.push_back(aliased);
+      }
+      else
+      {
+        RDCERR("Expected to find alias-target result for EID %u counter %u, but didn't",
+               search.eventId, search.counter);
+      }
+    }
+  }
+
+  SAFE_DELETE(m_pQCActionCallback);
+
+  // sort so that the alias results appear in the right places
+  std::sort(ret.begin(), ret.end());
 
   return ret;
 }
@@ -985,6 +1175,19 @@ rdcarray<CounterResult> VulkanReplay::FetchCounters(const rdcarray<GPUCounter> &
     if(!amdCounters.empty())
     {
       ret = FetchCountersAMD(amdCounters);
+    }
+  }
+
+  if(m_pQCCounters)
+  {
+    // Filter out the Qualcomm counters
+    rdcarray<GPUCounter> qcCounters;
+    std::copy_if(counters.begin(), counters.end(), std::back_inserter(qcCounters),
+                 [](const GPUCounter &c) { return IsQualcommCounter(c); });
+
+    if(!qcCounters.empty())
+    {
+      ret = FetchCountersQC(qcCounters);
     }
   }
 

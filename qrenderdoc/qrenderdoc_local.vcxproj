@@ -595,6 +595,9 @@
     <ClCompile Include="Code\MiniQtHelper.cpp" />
     <ClCompile Include="Code\Resources.cpp" />
     <ClCompile Include="Code\RGPInterop.cpp" />
+    <ClCompile Include="Code\QCInterop.cpp" />
+    <ClCompile Include="Code\SystemTrace.cpp" />
+    <ClCompile Include="Code\SystemTraceCorrelation.cpp" />
     <ClCompile Include="Code\ScintillaSyntax.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_RDStyle.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_RDTweakedNativeStyle.cpp" />
@@ -770,6 +773,7 @@
     <ClCompile Include="Windows\Dialogs\InvestigationReportDialog.cpp" />
     <ClCompile Include="Windows\Dialogs\MaliAnalysisDialog.cpp" />
     <ClCompile Include="Windows\Dialogs\MCPStatusDialog.cpp" />
+    <ClCompile Include="Windows\Dialogs\SystemTraceViewer.cpp" />
     <ClCompile Include="Windows\Dialogs\CaptureDialog.cpp" />
     <ClCompile Include="Windows\Dialogs\LiveCapture.cpp" />
     <ClCompile Include="Windows\Dialogs\EnvironmentEditor.cpp" />
@@ -1016,6 +1020,9 @@
     <ClInclude Include="$(IntDir)generated\ui_VirtualFileDialog.h" />
     <ClInclude Include="$(IntDir)generated\ui_VulkanPipelineStateViewer.h" />
     <ClInclude Include="Code\RGPInterop.h" />
+    <ClInclude Include="Code\QCInterop.h" />
+    <ClInclude Include="Code\SystemTrace.h" />
+    <ClInclude Include="Code\SystemTraceCorrelation.h" />
     <ClInclude Include="Code\CaptureContext.h" />
     <ClInclude Include="Code\AI\MCPTypes.h" />
     <ClInclude Include="Code\AI\MCPToolRegistry.h" />
@@ -1028,6 +1035,7 @@
     <ClInclude Include="Code\AI\MCPExternalTools.h" />
     <ClInclude Include="Code\AI\MCPSourceMapping.h" />
     <ClInclude Include="Windows\Dialogs\MaliAnalysisDialog.h" />
+    <ClInclude Include="Windows\Dialogs\SystemTraceViewer.h" />
     <CustomBuild Include="Code\AI\MCPHttpServer.h">
       <AdditionalInputs>%(Fullpath);$(QtBinDir)\moc.exe;%(AdditionalInputs)</AdditionalInputs>
       <Command>"$(QtBinDir)\moc.exe" -DUNICODE -DWIN32 -DWIN64 -D_WIN32 -D_WIN64 -DRENDERDOC_PLATFORM_WIN32 -DSCINTILLA_QT=1 -DSCI_LEXER=1 -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB -D_MSC_VER=1900 -I"$(ProjectDir)." -I"$(SolutionDir)\renderdoc\api\replay" -I"$(QtIncludeDir)" -I"$(QtIncludeDir)\QtWidgets" -I"$(QtIncludeDir)\QtGui" -I"$(QtIncludeDir)\QtCore" "%(Fullpath)" -o "$(IntDir)generated\moc_%(Filename).cpp"</Command>

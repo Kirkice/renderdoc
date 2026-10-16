@@ -2308,6 +2308,38 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IRGPInterop);
 
+DOCUMENT("Controlling interface for interop with Qualcomm Snapdragon Profiler.");
+struct IQCInterop
+{
+  DOCUMENT(R"(Return true if the given :data:`eventId <renderdoc.APIEvent.eventId>` has an
+equivalent event in Snapdragon Profiler.
+
+:param int eventId: The :data:`eventId <renderdoc.APIEvent.eventId>` to query for.
+:return: ``True`` if there is an equivalent. This only confirms the equivalent exists, not that it
+  will be selectable in all cases.
+:rtype: bool
+)");
+  virtual bool HasQCEvent(uint32_t eventId) = 0;
+
+  DOCUMENT(R"(Select the given :data:`eventId <renderdoc.APIEvent.eventId>` equivalent in Snapdragon
+Profiler.
+
+:param int eventId: The :data:`eventId <renderdoc.APIEvent.eventId>` to query for.
+:return: ``True`` if the selection request succeeded. This only confirms the request was sent, not
+  that the event was selected in Snapdragon Profiler.
+:rtype: bool
+)");
+  virtual bool SelectQCEvent(uint32_t eventId) = 0;
+
+  DOCUMENT("");
+  virtual ~IQCInterop() = default;
+
+protected:
+  IQCInterop() = default;
+};
+
+DECLARE_REFLECTION_STRUCT(IQCInterop);
+
 DOCUMENT(R"(
 The capture context that the python script is running in.
 
@@ -2812,6 +2844,41 @@ called.
 :rtype: Optional[RGPInterop]
 )");
   virtual IRGPInterop *GetRGPInterop() = 0;
+
+  DOCUMENT(R"(Sets the path to a Snapdragon Profiler export/trace to correlate with the current
+capture via :meth:`GetQCInterop`, launches Snapdragon Profiler and opens an interop connection.
+This function will block (with a progress dialog) until either an error is encountered or else the
+connection is successfully established.
+
+This mirrors :meth:`OpenRGPProfile` but targets the Qualcomm Snapdragon Profiler. The profiling
+tool is treated as an external process; RenderDoc never bundles or redistributes any Qualcomm
+binary, it only launches a path the user has configured.
+
+The connection is automatically closed when the capture is closed. If OpenQCProfile is called
+again, any previous connection will be closed.
+
+:param str filename: The filename of the Snapdragon Profiler export/trace on disk.
+:return: Whether Snapdragon Profiler launched successfully.
+:rtype: bool
+)");
+  virtual bool OpenQCProfile(const rdcstr &filename) = 0;
+
+  DOCUMENT(R"(Returns the current interop handle for Qualcomm Snapdragon Profiler.
+
+This may return ``None`` in several cases:
+
+- if there is no capture loaded
+- if no Snapdragon Profiler trace has been associated with the current capture yet
+  (See :meth:`OpenQCProfile`)
+- if Snapdragon Profiler failed to launch or connect.
+
+The handle returned is invalidated when the capture is closed, or if :meth:`OpenQCProfile` is
+called.
+
+:return: The Qualcomm interop connection handle.
+:rtype: Optional[QCInterop]
+)");
+  virtual IQCInterop *GetQCInterop() = 0;
 
   DOCUMENT(R"(Retrieve the :class:`~renderdoc.SDFile` for the currently open capture.
 

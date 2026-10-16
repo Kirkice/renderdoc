@@ -172,6 +172,8 @@ public:
   void ClearReplayCache() override;
   bool OpenRGPProfile(const rdcstr &filename) override;
   IRGPInterop *GetRGPInterop() override { return m_RGP; }
+  bool OpenQCProfile(const rdcstr &filename) override;
+  IQCInterop *GetQCInterop() override { return m_QC; }
   const rdcarray<ActionDescription> &CurRootActions() override { return *m_Actions; }
   const ResourceDescription *GetResource(ResourceId id) const override { return m_Resources[id]; }
   const rdcarray<ResourceDescription> &GetResources() override { return m_ResourceList; }
@@ -395,6 +397,7 @@ private:
   const ActionDescription *m_LastAction = NULL;
 
   IRGPInterop *m_RGP = NULL;
+  IQCInterop *m_QC = NULL;
 
   QMap<ResourceId, TextureDescription *> m_Textures;
   rdcarray<TextureDescription> m_TextureList;

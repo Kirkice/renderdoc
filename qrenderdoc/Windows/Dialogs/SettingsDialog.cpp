@@ -190,6 +190,8 @@ SettingsDialog::SettingsDialog(ICaptureContext &ctx, QWidget *parent)
 
   ui->ExternalTool_RadeonGPUProfiler->setText(m_Ctx.Config().ExternalTool_RadeonGPUProfiler);
 
+  ui->ExternalTool_SnapdragonProfiler->setText(m_Ctx.Config().ExternalTool_SnapdragonProfiler);
+
   ui->TextureViewer_ResetRange->setChecked(m_Ctx.Config().TextureViewer_ResetRange);
   ui->TextureViewer_PerTexSettings->setChecked(m_Ctx.Config().TextureViewer_PerTexSettings);
   ui->TextureViewer_PerTexYFlip->setChecked(m_Ctx.Config().TextureViewer_PerTexYFlip);
@@ -850,6 +852,29 @@ void SettingsDialog::on_browseRGPPath_clicked()
   {
     ui->ExternalTool_RadeonGPUProfiler->setText(rgp);
     m_Ctx.Config().ExternalTool_RadeonGPUProfiler = rgp;
+  }
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_ExternalTool_SnapdragonProfiler_textEdited(const QString &path)
+{
+  if(QFileInfo::exists(path) || path.isEmpty())
+    m_Ctx.Config().ExternalTool_SnapdragonProfiler = path;
+
+  m_Ctx.Config().Save();
+}
+
+void SettingsDialog::on_browseSnapdragonProfilerPath_clicked()
+{
+  QString path = RDDialog::getExecutableFileName(
+      this, tr("Locate Snapdragon Profiler executable"),
+      QFileInfo(m_Ctx.Config().ExternalTool_SnapdragonProfiler).absoluteDir().path());
+
+  if(!path.isEmpty())
+  {
+    ui->ExternalTool_SnapdragonProfiler->setText(path);
+    m_Ctx.Config().ExternalTool_SnapdragonProfiler = path;
   }
 
   m_Ctx.Config().Save();

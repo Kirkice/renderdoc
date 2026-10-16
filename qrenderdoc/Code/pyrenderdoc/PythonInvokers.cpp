@@ -1477,6 +1477,11 @@ struct CaptureContextInvoker : public UIThreadInvoker<ICaptureContext>
     return m_Obj.OpenRGPProfile(filename);
   }
   virtual IRGPInterop *GetRGPInterop() override { return m_Obj.GetRGPInterop(); }
+  virtual bool OpenQCProfile(const rdcstr &filename) override
+  {
+    return m_Obj.OpenQCProfile(filename);
+  }
+  virtual IQCInterop *GetQCInterop() override { return m_Obj.GetQCInterop(); }
   virtual const SDFile &GetStructuredFile() override { return m_Obj.GetStructuredFile(); }
   virtual WindowingSystem CurWindowingSystem() override { return m_Obj.CurWindowingSystem(); }
   virtual const rdcarray<DebugMessage> &DebugMessages() override { return m_Obj.DebugMessages(); }

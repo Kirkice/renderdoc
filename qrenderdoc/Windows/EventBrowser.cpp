@@ -5639,6 +5639,9 @@ void EventBrowser::events_contextMenu(const QPoint &pos)
   QAction rgpSelect(tr("Select &RGP Event"), this);
   rgpSelect.setIcon(Icons::connect());
 
+  QAction qcSelect(tr("Select Snapdragon Profiler Event"), this);
+  qcSelect.setIcon(Icons::connect());
+
   contextMenu.addAction(&expandAll);
   contextMenu.addAction(&collapseAll);
   contextMenu.addAction(&toggleBookmark);
@@ -5669,6 +5672,14 @@ void EventBrowser::events_contextMenu(const QPoint &pos)
     contextMenu.addAction(&rgpSelect);
     QObject::connect(&rgpSelect, &QAction::triggered,
                      [this, rgp]() { rgp->SelectRGPEvent(m_Ctx.CurEvent()); });
+  }
+
+  IQCInterop *qc = m_Ctx.GetQCInterop();
+  if(qc && qc->HasQCEvent(m_Ctx.CurEvent()))
+  {
+    contextMenu.addAction(&qcSelect);
+    QObject::connect(&qcSelect, &QAction::triggered,
+                     [this, qc]() { qc->SelectQCEvent(m_Ctx.CurEvent()); });
   }
 
   contextMenu.addSeparator();

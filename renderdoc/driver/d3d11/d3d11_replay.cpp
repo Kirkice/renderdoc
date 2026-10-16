@@ -203,6 +203,16 @@ void D3D11Replay::InitReplayOnDevice(IDXGIFactory *factory)
       RDCLOG("Intel GPU detected - trying to initialize Intel counters");
       countersIntel = new IntelCounters();
     }
+    else if(m_DriverInfo.vendor == GPUVendor::Qualcomm)
+    {
+      // Structural alignment only (planning document section 4): Qualcomm / Adreno
+      // counters are exposed through the GGPM backend (driver/ihv/qc), which is
+      // Android-only and attached on the GLES/Vulkan paths - there is no D3D11
+      // counter backend, exactly like ARM (driver/ihv/arm). This branch keeps the
+      // vendor dispatch shape in sync with GL/Vulkan so the absence of a D3D
+      // Qualcomm backend is explicit rather than falling through by accident.
+      RDCLOG("Qualcomm GPU detected - counters are exposed via the GGPM backend on GLES/Vulkan only");
+    }
     else
     {
       RDCLOG("%s GPU detected - no counters available", ToStr(m_DriverInfo.vendor).c_str());

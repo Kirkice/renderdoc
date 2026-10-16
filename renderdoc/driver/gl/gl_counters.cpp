@@ -26,6 +26,7 @@
 #include <iterator>
 #include "driver/ihv/amd/amd_counters.h"
 #include "driver/ihv/arm/arm_counters.h"
+#include "driver/ihv/qc/qc_counters.h"
 #include "driver/ihv/intel/intel_gl_counters.h"
 #include "driver/ihv/nv/nv_gl_counters.h"
 #include "gl_driver.h"
@@ -72,6 +73,11 @@ rdcarray<GPUCounter> GLReplay::EnumerateCounters()
     ret.append(m_pARMCounters->GetPublicCounterIds());
   }
 
+  if(m_pQCCounters)
+  {
+    ret.append(m_pQCCounters->GetPublicCounterIds());
+  }
+
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
   if(m_pNVCounters)
   {
@@ -113,6 +119,12 @@ CounterDescription GLReplay::DescribeCounter(GPUCounter counterID)
   if(IsARMCounter(counterID) && m_pARMCounters)
   {
     return m_pARMCounters->GetCounterDescription(counterID);
+  }
+
+  /////Qualcomm/////
+  if(IsQualcommCounter(counterID) && m_pQCCounters)
+  {
+    return m_pQCCounters->GetCounterDescription(counterID);
   }
 
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
@@ -568,6 +580,89 @@ rdcarray<CounterResult> GLReplay::FetchCountersARM(const rdcarray<GPUCounter> &c
   return ret;
 }
 
+void GLReplay::FillTimersQC(uint32_t *eventStartID, uint32_t *sampleIndex,
+                            rdcarray<uint32_t> *eventIDs, const ActionDescription &actionnode)
+{
+  if(actionnode.children.empty())
+    return;
+
+  for(size_t i = 0; i < actionnode.children.size(); i++)
+  {
+    const ActionDescription &a = actionnode.children[i];
+
+    FillTimersQC(eventStartID, sampleIndex, eventIDs, actionnode.children[i]);
+
+    if(a.events.empty())
+      continue;
+
+    eventIDs->push_back(a.eventId);
+
+    m_pDriver->ReplayLog(*eventStartID, a.eventId, eReplay_WithoutDraw);
+
+    m_pQCCounters->BeginSample(a.eventId);
+
+    m_pDriver->ReplayLog(*eventStartID, a.eventId, eReplay_OnlyDraw);
+
+    // wait for the GPU to process all commands
+    GLsync sync = GL.glFenceSync(eGL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    GL.glClientWaitSync(sync, eGL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED);
+
+    m_pQCCounters->EndSample();
+
+    GL.glDeleteSync(sync);
+
+    *eventStartID = a.eventId + 1;
+    ++*sampleIndex;
+  }
+}
+
+rdcarray<CounterResult> GLReplay::FetchCountersQC(const rdcarray<GPUCounter> &counters)
+{
+  // Defensive: callers already filter empty sets, but a zero-pass run would leave
+  // the counters unselected and produce nothing.
+  if(counters.empty())
+    return {};
+
+  m_pQCCounters->DisableAllCounters();
+
+  // enable counters it needs
+  for(size_t i = 0; i < counters.size(); i++)
+  {
+    // This function is only called internally, and violating this assertion means our
+    // caller has invoked this method incorrectly
+    RDCASSERT(IsQualcommCounter(counters[i]));
+    m_pQCCounters->EnableCounter(counters[i]);
+  }
+
+  uint32_t passCount = m_pQCCounters->GetPassCount();
+
+  uint32_t sampleIndex = 0;
+
+  rdcarray<uint32_t> eventIDs;
+
+  m_pDriver->ReplayMarkers(false);
+
+  for(uint32_t p = 0; p < passCount; p++)
+  {
+    m_pQCCounters->BeginPass(p);
+
+    uint32_t eventStartID = 0;
+
+    sampleIndex = 0;
+
+    eventIDs.clear();
+
+    FillTimersQC(&eventStartID, &sampleIndex, &eventIDs, m_pDriver->GetRootAction());
+
+    m_pQCCounters->EndPass();
+  }
+  m_pDriver->ReplayMarkers(true);
+
+  rdcarray<CounterResult> ret = m_pQCCounters->GetCounterData(eventIDs, counters);
+
+  return ret;
+}
+
 rdcarray<CounterResult> GLReplay::FetchCounters(const rdcarray<GPUCounter> &allCounters)
 {
   rdcarray<CounterResult> ret;
@@ -620,6 +715,17 @@ rdcarray<CounterResult> GLReplay::FetchCounters(const rdcarray<GPUCounter> &allC
 
     if(!armCounters.empty())
       ret = FetchCountersARM(armCounters);
+  }
+
+  if(m_pQCCounters)
+  {
+    // Filter out the Qualcomm counters
+    rdcarray<GPUCounter> qcCounters;
+    std::copy_if(allCounters.begin(), allCounters.end(), std::back_inserter(qcCounters),
+                 [](const GPUCounter &c) { return IsQualcommCounter(c); });
+
+    if(!qcCounters.empty())
+      ret = FetchCountersQC(qcCounters);
   }
 
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)

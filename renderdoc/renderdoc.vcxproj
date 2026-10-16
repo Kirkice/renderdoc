@@ -884,6 +884,9 @@ namespace DXCEnumerateAndCheck {
     <ProjectReference Include="driver\ihv\nv\NV.vcxproj">
       <Project>{40349ad9-5558-4df4-84e2-11934de90a11}</Project>
     </ProjectReference>
+    <ProjectReference Include="driver\ihv\qc\QC.vcxproj">
+      <Project>{8B4B7B2E-6D6C-4A3F-9E8B-2D5C0A1F7C31}</Project>
+    </ProjectReference>
     <ProjectReference Include="driver\vulkan\renderdoc_vulkan.vcxproj">
       <Project>{88c5dac6-30a0-4cfd-af51-540a977d1f3f}</Project>
     </ProjectReference>

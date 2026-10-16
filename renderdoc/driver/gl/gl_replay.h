@@ -33,6 +33,7 @@
 
 class AMDCounters;
 class ARMCounters;
+class QCCounters;
 class IntelGlCounters;
 class WrappedOpenGL;
 struct GLCounterContext;
@@ -606,6 +607,14 @@ private:
                      const ActionDescription &actionnode);
 
   rdcarray<CounterResult> FetchCountersARM(const rdcarray<GPUCounter> &counters);
+
+  // Qualcomm/Adreno counter instance
+  QCCounters *m_pQCCounters = NULL;
+
+  void FillTimersQC(uint32_t *eventStartID, uint32_t *sampleIndex, rdcarray<uint32_t> *eventIDs,
+                    const ActionDescription &actionnode);
+
+  rdcarray<CounterResult> FetchCountersQC(const rdcarray<GPUCounter> &counters);
 
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
   // NVIDIA counter instance

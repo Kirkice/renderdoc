@@ -85,6 +85,8 @@ private slots:
   void on_ExternalTool_RGPIntegration_toggled(bool checked);
   void on_ExternalTool_RadeonGPUProfiler_textEdited(const QString &rgp);
   void on_browseRGPPath_clicked();
+  void on_ExternalTool_SnapdragonProfiler_textEdited(const QString &path);
+  void on_browseSnapdragonProfilerPath_clicked();
 
   // python
   void on_Python_StubPaths_clicked();

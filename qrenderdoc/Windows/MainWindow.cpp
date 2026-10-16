@@ -59,6 +59,7 @@
 #include "Windows/Dialogs/RemoteManager.h"
 #include "Windows/Dialogs/SettingsDialog.h"
 #include "Windows/Dialogs/SuggestRemoteDialog.h"
+#include "Windows/Dialogs/SystemTraceViewer.h"
 #include "Windows/Dialogs/TipsDialog.h"
 #include "Windows/Dialogs/UpdateDialog.h"
 #include "ui_MainWindow.h"
@@ -526,6 +527,7 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   ui->action_Start_Replay_Loop->setEnabled(false);
   ui->action_Open_RGP_Profile->setEnabled(false);
   ui->action_Create_RGP_Profile->setEnabled(false);
+  ui->action_Open_Snapdragon_Profile->setEnabled(false);
   ui->action_Resolve_Symbols->setEnabled(false);
   ui->action_Resolve_Symbols->setText(tr("Resolve Symbols"));
 
@@ -2370,6 +2372,14 @@ void MainWindow::OnCaptureLoaded()
 
   ui->action_Open_RGP_Profile->setEnabled(false);
   ui->action_Create_RGP_Profile->setEnabled(m_Ctx.APIProps().rgpCapture && m_Ctx.IsCaptureLocal());
+
+  // Snapdragon Profiler interop is a user-driven external process, so the "open" action only
+  // requires a locally loaded capture. There is no embedded section to detect, unlike RGP.
+  ui->action_Open_Snapdragon_Profile->setEnabled(m_Ctx.IsCaptureLocal());
+
+  // The system trace correlation viewer is purely offline: it reads a user-exported trace file
+  // and overlays it onto the currently loaded capture, so it only needs a local capture too.
+  ui->action_System_Trace_Correlation->setEnabled(m_Ctx.IsCaptureLocal());
   m_Ctx.Replay().AsyncInvoke([this](IReplayController *) {
     bool hasAMDGRPPorfile =
         (m_Ctx.Replay().GetCaptureAccess()->FindSectionByType(SectionType::AMDRGPProfile) >= 0);
@@ -2430,6 +2440,8 @@ void MainWindow::OnCaptureClosed()
   ui->action_Start_Replay_Loop->setEnabled(false);
   ui->action_Open_RGP_Profile->setEnabled(false);
   ui->action_Create_RGP_Profile->setEnabled(false);
+  ui->action_Open_Snapdragon_Profile->setEnabled(false);
+  ui->action_System_Trace_Correlation->setEnabled(false);
 
   contextChooser->setEnabled(true);
 
@@ -2944,6 +2956,39 @@ void MainWindow::on_action_Open_RGP_Profile_triggered()
   }
 
   m_Ctx.OpenRGPProfile(path);
+}
+
+void MainWindow::on_action_Open_Snapdragon_Profile_triggered()
+{
+  if(!m_Ctx.IsCaptureLoaded())
+    return;
+
+  // Unlike RGP there is no Qualcomm profile embedded in the capture. Snapdragon Profiler
+  // produces its own trace, so the user selects that existing trace and RenderDoc hands the
+  // path to the external tool. Because the Snapdragon wire protocol is unverified, this only
+  // launches the user-configured profiler; if the tool can't dial back, the capture degrades
+  // to the file-export path (handled inside CaptureContext::OpenQCProfile).
+  QString path = RDDialog::getOpenFileName(
+      this, tr("Select Snapdragon Profiler trace to correlate"), m_Ctx.Config().LastCaptureFilePath,
+      tr("All Files (*)"));
+
+  if(path.isEmpty())
+    return;
+
+  m_Ctx.OpenQCProfile(path);
+}
+
+void MainWindow::on_action_System_Trace_Correlation_triggered()
+{
+  if(!m_Ctx.IsCaptureLoaded())
+    return;
+
+  // This viewer is deliberately decoupled from any vendor SDK. It imports a documented JSON-lines
+  // trace export and correlates it with the current frame's actions by frame number, falling back
+  // to absolute trace timestamps when no shared clock is declared. Nothing here touches the
+  // capture core or requires Qualcomm binaries.
+  SystemTraceViewer *viewer = new SystemTraceViewer(m_Ctx, this);
+  viewer->show();
 }
 
 void MainWindow::on_action_Create_RGP_Profile_triggered()

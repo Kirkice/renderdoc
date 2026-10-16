@@ -57,6 +57,9 @@
     <addaction name="action_Start_Replay_Loop"/>
     <addaction name="action_Create_RGP_Profile"/>
     <addaction name="action_Open_RGP_Profile"/>
+    <addaction name="action_Open_Snapdragon_Profile"/>
+    <addaction name="separator"/>
+    <addaction name="action_System_Trace_Correlation"/>
     <addaction name="separator"/>
     <addaction name="extension_dummy_Tools"/>
     <addaction name="separator"/>
@@ -499,6 +502,16 @@
   <action name="action_Open_RGP_Profile">
    <property name="text">
     <string>Open RGP Profile</string>
+   </property>
+  </action>
+  <action name="action_Open_Snapdragon_Profile">
+   <property name="text">
+    <string>Open Snapdragon Profiler Profile</string>
+   </property>
+  </action>
+  <action name="action_System_Trace_Correlation">
+   <property name="text">
+    <string>System Trace Correlation</string>
    </property>
   </action>
   <action name="extension_dummy_Tools">

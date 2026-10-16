@@ -757,6 +757,33 @@ After interop is enabled you will need to reload any capture.</string>
            </widget>
           </item>
           <item row="6" column="0" colspan="2">
+           <widget class="QLabel" name="label_QCProfilerPath">
+            <property name="toolTip">
+             <string>Locates the Snapdragon Profiler executable which RenderDoc launches as an external tool to correlate a system-level trace. RenderDoc never bundles or redistributes any Qualcomm binary.</string>
+            </property>
+            <property name="text">
+             <string>Path to Snapdragon Profiler executable</string>
+            </property>
+           </widget>
+          </item>
+          <item row="7" column="0">
+           <widget class="QLineEdit" name="ExternalTool_SnapdragonProfiler">
+            <property name="toolTip">
+             <string>Locates the Snapdragon Profiler executable which RenderDoc launches as an external tool to correlate a system-level trace. RenderDoc never bundles or redistributes any Qualcomm binary.</string>
+            </property>
+           </widget>
+          </item>
+          <item row="7" column="1">
+           <widget class="QPushButton" name="browseSnapdragonProfilerPath">
+            <property name="toolTip">
+             <string>Locates the Snapdragon Profiler executable which RenderDoc launches as an external tool to correlate a system-level trace. RenderDoc never bundles or redistributes any Qualcomm binary.</string>
+            </property>
+            <property name="text">
+             <string>Browse</string>
+            </property>
+           </widget>
+          </item>
+          <item row="8" column="0" colspan="2">
            <spacer name="verticalSpacer_2">
             <property name="orientation">
              <enum>Qt::Vertical</enum>

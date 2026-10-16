@@ -64,6 +64,7 @@
 #include "MiniQtHelper.h"
 #include "QRDUtils.h"
 #include "RGPInterop.h"
+#include "QCInterop.h"
 #include "version.h"
 
 #include "pipestate.inl"
@@ -1547,6 +1548,9 @@ void CaptureContext::CloseCapture()
   delete m_RGP;
   m_RGP = NULL;
 
+  delete m_QC;
+  m_QC = NULL;
+
   m_Config.CrashReport_LastOpenedCapture = QString();
 
   m_CaptureTemporary = false;
@@ -2224,6 +2228,85 @@ bool CaptureContext::OpenRGPProfile(const rdcstr &filename)
   }
 
   m_RGP = new RGPInterop(*this);
+
+  return true;
+}
+
+bool CaptureContext::OpenQCProfile(const rdcstr &filename)
+{
+  delete m_QC;
+  m_QC = NULL;
+
+  if(!m_CaptureLoaded)
+  {
+    RDDialog::critical(m_MainWindow, tr("Error opening Snapdragon Profiler"),
+                       tr("Can't open a Snapdragon Profiler profile with no capture open"));
+    return false;
+  }
+
+  if(!m_StructuredFile)
+  {
+    RDDialog::critical(
+        m_MainWindow, tr("Error opening Snapdragon Profiler"),
+        tr("Open capture has no structured data - can't initialise Snapdragon Profiler interop."));
+    return false;
+  }
+
+  if(filename.isEmpty() || !QFileInfo(filename).exists())
+  {
+    RDDialog::critical(m_MainWindow, tr("Error opening Snapdragon Profiler"),
+                       tr("Invalid filename specified to open as a Snapdragon Profiler "
+                          "profile\n%1\n"
+                          "Please restart RenderDoc and try again.")
+                           .arg(QString(filename)));
+    return false;
+  }
+
+  QString QCPath = m_Config.ExternalTool_SnapdragonProfiler;
+
+  while(!QFileInfo(QCPath).exists())
+  {
+    QMessageBox::StandardButton res =
+        RDDialog::question(m_MainWindow, tr("Error opening Snapdragon Profiler"),
+                           tr("Path to Snapdragon Profiler is incorrectly configured\n\nOpen "
+                              "settings window to configure path?"),
+                           QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+
+    if(res == QMessageBox::Cancel || res == QMessageBox::No)
+      return false;
+
+    SettingsDialog settings(*this, m_MainWindow);
+    settings.focusItem(lit("ExternalTool_SnapdragonProfiler"));
+    RDDialog::show(&settings);
+
+    QCPath = m_Config.ExternalTool_SnapdragonProfiler;
+  }
+
+  // Make sure the version of Snapdragon Profiler specified supports interop. If not, degrade to the
+  // file-based export path rather than crashing: some versions may not accept the interop
+  // command-line invocation. Having recorded the path above, the capture is still usable.
+  if(!QCInterop::QCSupportsInterop(QCPath))
+  {
+    QMessageBox::StandardButton res = RDDialog::question(
+        m_MainWindow, tr("Snapdragon Profiler Version"),
+        tr("This version of Snapdragon Profiler does not appear to support interop.\n\nOpen the "
+           "exported trace as a file instead."),
+        QMessageBox::Ok);
+    return false;
+  }
+
+  QString portStr = QString::number(QCInterop::Port);
+
+  // Snapdragon Profiler is an external process launched from a user-configured path; RenderDoc does
+  // not bundle or redistribute any Qualcomm binary.
+  if(!QProcess::startDetached(QCPath, QStringList() << QString(filename) << portStr))
+  {
+    RDDialog::critical(m_MainWindow, tr("Error opening Snapdragon Profiler"),
+                       tr("Failed to launch Snapdragon Profiler."));
+    return false;
+  }
+
+  m_QC = new QCInterop(*this);
 
   return true;
 }

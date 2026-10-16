@@ -590,6 +590,12 @@ if(ENABLE_GL OR ENABLE_GLES)
     list(APPEND renderdoc_objects $<TARGET_OBJECTS:rdoc_arm>)
 endif()
 
+# pull in the Qualcomm/Adreno folder for perf query (GL and/or Vulkan)
+if(ENABLE_GL OR ENABLE_GLES OR ENABLE_VULKAN)
+    add_subdirectory(driver/ihv/qc)
+    list(APPEND renderdoc_objects $<TARGET_OBJECTS:rdoc_qc>)
+endif()
+
 # pull in the NVIDIA folder
 if(ENABLE_GL OR ENABLE_GLES OR ENABLE_VULKAN)
     add_subdirectory(driver/ihv/nv)

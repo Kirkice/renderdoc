@@ -237,6 +237,16 @@ void D3D12Replay::CreateResources()
 
         RDCLOG("NVIDIA D3D12 counter initialisation: %s", initSuccess ? "SUCCEEDED" : "FAILED");
       }
+
+      if(m_DriverInfo.vendor == GPUVendor::Qualcomm)
+      {
+        // Structural alignment only (planning document section 4): Qualcomm / Adreno
+        // counters are exposed through the GGPM backend (driver/ihv/qc), which is
+        // Android-only and attached on the GLES/Vulkan paths - there is no D3D12
+        // counter backend, exactly like ARM. This keeps the vendor dispatch shape in
+        // sync with the other IHV backends without adding unavailable functionality.
+        RDCLOG("Qualcomm GPU detected - counters are exposed via the GGPM backend on GLES/Vulkan only");
+      }
     }
   }
 }

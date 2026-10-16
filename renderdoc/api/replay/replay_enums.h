@@ -3914,6 +3914,14 @@ enumerated with IDs in the appropriate ranges.
 .. data:: LastARM
 
   The ARM-specific counter IDs end with this value.
+
+.. data:: FirstQualcomm
+
+  The Qualcomm-specific counter IDs start from this value.
+
+.. data:: LastQualcomm
+
+  The Qualcomm-specific counter IDs end with this value.
 )");
 enum class GPUCounter : uint32_t
 {
@@ -3955,7 +3963,10 @@ enum class GPUCounter : uint32_t
   FirstARM = 5000000,
   LastVulkanExtended = FirstARM - 1,
 
-  LastARM = 6000000,
+  FirstQualcomm = 7000000,
+  LastARM = FirstQualcomm - 1,
+
+  LastQualcomm = 8000000,
 };
 
 ITERABLE_OPERATORS(GPUCounter);
@@ -4025,6 +4036,17 @@ DOCUMENT(R"(Check whether or not this is an ARM private counter.
 inline constexpr bool IsARMCounter(GPUCounter c)
 {
   return c >= GPUCounter::FirstARM && c <= GPUCounter::LastARM;
+}
+
+DOCUMENT(R"(Check whether or not this is a Qualcomm private counter.
+
+:param GPUCounter c: The counter.
+:return: ``True`` if it is a Qualcomm private counter, ``False`` if it's not.
+:rtype: bool
+)");
+inline constexpr bool IsQualcommCounter(GPUCounter c)
+{
+  return c >= GPUCounter::FirstQualcomm && c <= GPUCounter::LastQualcomm;
 }
 
 DOCUMENT(R"(The unit that GPU counter data is returned in.

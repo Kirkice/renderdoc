@@ -146,11 +146,13 @@ enum class BufferStorageMode : uint32_t;
 #define VULKAN_MESH_VIEW_SAMPLES VK_SAMPLE_COUNT_4_BIT
 
 class AMDCounters;
+class QCCounters;
 class WrappedVulkan;
 class VulkanDebugManager;
 class VulkanResourceManager;
 struct VulkanStatePipeline;
 struct VulkanAMDActionCallback;
+struct VulkanQCActionCallback;
 
 class NVVulkanCounters;
 
@@ -510,6 +512,7 @@ public:
                             const VkPhysicalDeviceDriverProperties &driverProps);
 
   AMDCounters *GetAMDCounters() { return m_pAMDCounters; }
+  QCCounters *GetQCCounters() { return m_pQCCounters; }
   void CopyPixelForPixelHistory(VkCommandBuffer cmd, VkOffset2D offset, uint32_t sample,
                                 uint32_t bufferOffset, VkFormat format, VkDescriptorSet descSet);
 
@@ -921,10 +924,18 @@ private:
 
   rdcarray<CounterResult> FetchCountersAMD(const rdcarray<GPUCounter> &counters);
 
+  // Qualcomm/Adreno counters
+  void FillTimersQC(uint32_t *eventStartID, uint32_t *sampleIndex, rdcarray<uint32_t> *eventIDs);
+
+  rdcarray<CounterResult> FetchCountersQC(const rdcarray<GPUCounter> &counters);
+
   AMDCounters *m_pAMDCounters = NULL;
   AMDRGPControl *m_RGP = NULL;
 
   VulkanAMDActionCallback *m_pAMDActionCallback = NULL;
+
+  QCCounters *m_pQCCounters = NULL;
+  VulkanQCActionCallback *m_pQCActionCallback = NULL;
 
 #if DISABLED(RDOC_ANDROID) && DISABLED(RDOC_APPLE)
   NVVulkanCounters *m_pNVCounters = NULL;

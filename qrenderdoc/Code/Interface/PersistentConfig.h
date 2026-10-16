@@ -661,6 +661,14 @@ DECLARE_REFLECTION_STRUCT(BugReport);
   CONFIG_SETTING_VAL(public, QString, rdcstr, ExternalTool_RadeonGPUProfiler, "")                  \
                                                                                                    \
   DOCUMENT(                                                                                        \
+      "The path to the executable of the external Qualcomm Snapdragon Profiler tool. RenderDoc "    \
+      "only ever launches this path as an external process; it does not bundle or redistribute "    \
+      "any Qualcomm binary."                                                                        \
+      ""                                                                                           \
+      ":type: str");                                                                               \
+  CONFIG_SETTING_VAL(public, QString, rdcstr, ExternalTool_SnapdragonProfiler, "")                 \
+                                                                                                   \
+  DOCUMENT(                                                                                        \
       "``True`` if the user has had the annotation viewer displayed when hidden upon loading a "   \
       "capture that contains annotations. After this is set to true, we won't auto-show the \n"    \
       "annotation viewer automatically.\n"                                                         \

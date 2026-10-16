@@ -176,6 +176,9 @@ SOURCES += Code/qrenderdoc.cpp \
     Code/BufferFormatter.cpp \
     Code/Resources.cpp \
     Code/RGPInterop.cpp \
+    Code/QCInterop.cpp \
+    Code/SystemTrace.cpp \
+    Code/SystemTraceCorrelation.cpp \
     Code/pyrenderdoc/PythonContext.cpp \
     Code/pyrenderdoc/PythonInvokers.cpp \
     Code/Interface/QRDInterface.cpp \
@@ -272,7 +275,8 @@ SOURCES += Code/qrenderdoc.cpp \
     Code/AI/MCPSourceMapping.cpp \
     Windows/Dialogs/InvestigationReportDialog.cpp \
     Windows/Dialogs/MaliAnalysisDialog.cpp \
-    Windows/Dialogs/MCPStatusDialog.cpp
+    Windows/Dialogs/MCPStatusDialog.cpp \
+    Windows/Dialogs/SystemTraceViewer.cpp
 HEADERS += Code/CaptureContext.h \
     Code/qprocessinfo.h \
     Code/ReplayManager.h \
@@ -281,6 +285,9 @@ HEADERS += Code/CaptureContext.h \
     Code/MiniQtHelper.h \
     Code/Resources.h \
     Code/RGPInterop.h \
+    Code/QCInterop.h \
+    Code/SystemTrace.h \
+    Code/SystemTraceCorrelation.h \
     Code/pyrenderdoc/PythonContext.h \
     Code/pyrenderdoc/pyconversion.h \
     Code/pyrenderdoc/interface_check.h \
@@ -377,7 +384,8 @@ HEADERS += Code/CaptureContext.h \
     Code/AI/MCPHttpServer.h \
     Windows/Dialogs/InvestigationReportDialog.h \
     Windows/Dialogs/MaliAnalysisDialog.h \
-    Windows/Dialogs/MCPStatusDialog.h
+    Windows/Dialogs/MCPStatusDialog.h \
+    Windows/Dialogs/SystemTraceViewer.h
 FORMS    += Windows/Dialogs/AboutDialog.ui \
     Windows/Dialogs/CrashDialog.ui \
     Windows/Dialogs/UpdateDialog.ui \
