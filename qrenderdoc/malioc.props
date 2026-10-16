@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!--
+    Automatically bundle the Arm Mali Offline Compiler runtime next to qrenderdoc.exe
+    after every build, so the "Analyze with Mali Offline Compiler" feature works with
+    zero manual configuration ("just open and use").
+
+    The runtime is looked up in this order:
+      1. MALIOC_ROOT environment variable (set it to your own mali_offline_compiler folder)
+      2. a mali_offline_compiler folder in the repository root
+      3. known local Arm Performance Studio installations
+
+    If none is found the build simply proceeds without bundling. Override the source
+    with MALIOC_ROOT, or set MaliOCEnabled=0 to disable the copy entirely.
+  -->
+
+  <PropertyGroup>
+    <MaliOCEnabled Condition="'$(MaliOCEnabled)'==''">1</MaliOCEnabled>
+
+    <MaliOCOverrideRoot Condition="'$(MALIOC_ROOT)'!=''">$(MALIOC_ROOT)</MaliOCOverrideRoot>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <MaliOCSourceRoot Condition="'$(MaliOCSourceRoot)'=='' AND '$(MaliOCOverrideRoot)'!='' AND Exists('$(MaliOCOverrideRoot)\malioc.exe')">$(MaliOCOverrideRoot)</MaliOCSourceRoot>
+
+    <MaliOCSourceRoot Condition="'$(MaliOCSourceRoot)'=='' AND Exists('$(SolutionDir)mali_offline_compiler\malioc.exe')">$(SolutionDir)mali_offline_compiler</MaliOCSourceRoot>
+
+    <MaliOCSourceRoot Condition="'$(MaliOCSourceRoot)'=='' AND Exists('E:\Application\Arm Performance Studio 2024.6\mali_offline_compiler\malioc.exe')">E:\Application\Arm Performance Studio 2024.6\mali_offline_compiler</MaliOCSourceRoot>
+    <MaliOCSourceRoot Condition="'$(MaliOCSourceRoot)'=='' AND Exists('C:\Program Files\Arm\Arm Performance Studio 2024.6\mali_offline_compiler\malioc.exe')">C:\Program Files\Arm\Arm Performance Studio 2024.6\mali_offline_compiler</MaliOCSourceRoot>
+    <MaliOCSourceRoot Condition="'$(MaliOCSourceRoot)'=='' AND Exists('C:\Program Files\Arm\Arm Performance Studio\mali_offline_compiler\malioc.exe')">C:\Program Files\Arm\Arm Performance Studio\mali_offline_compiler</MaliOCSourceRoot>
+    <MaliOCSourceRoot Condition="'$(MaliOCSourceRoot)'=='' AND Exists('C:\Program Files (x86)\Arm\Arm Performance Studio\mali_offline_compiler\malioc.exe')">C:\Program Files (x86)\Arm\Arm Performance Studio\mali_offline_compiler</MaliOCSourceRoot>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <MaliOCPublishDir>$(OutDir)mali_offline_compiler</MaliOCPublishDir>
+    <MaliOCAvailable>0</MaliOCAvailable>
+    <MaliOCAvailable Condition="'$(MaliOCEnabled)'!='0' AND '$(MaliOCSourceRoot)'!=''">1</MaliOCAvailable>
+  </PropertyGroup>
+
+  <Target Name="CopyMaliOfflineCompiler" AfterTargets="Build" Condition="'$(MaliOCAvailable)'=='1'">
+    <ItemGroup>
+      <MaliOCRootFiles Include="$(MaliOCSourceRoot)\malioc.exe" />
+      <MaliOCGraphicsFiles Include="$(MaliOCSourceRoot)\graphics\*.dll" />
+      <MaliOCExternalFiles Include="$(MaliOCSourceRoot)\external\*.exe" />
+      <MaliOCExternalFiles Include="$(MaliOCSourceRoot)\external\*.dll" />
+    </ItemGroup>
+
+    <MakeDir Directories="$(MaliOCPublishDir)" />
+    <MakeDir Directories="$(MaliOCPublishDir)\graphics" />
+    <MakeDir Directories="$(MaliOCPublishDir)\external" />
+
+    <Copy SourceFiles="@(MaliOCRootFiles)" DestinationFolder="$(MaliOCPublishDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(MaliOCGraphicsFiles)" DestinationFolder="$(MaliOCPublishDir)\graphics" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(MaliOCExternalFiles)" DestinationFolder="$(MaliOCPublishDir)\external" SkipUnchangedFiles="true" />
+
+    <Message Importance="high" Text="Bundled Mali Offline Compiler from $(MaliOCSourceRoot) into $(MaliOCPublishDir)" />
+  </Target>
+
+  <Target Name="MaliOfflineCompilerMissing" AfterTargets="Build" Condition="'$(MaliOCEnabled)'!='0' AND '$(MaliOCAvailable)'!='1'">
+    <Message Importance="high" Text="Mali Offline Compiler not found; the analyzer will rely on MANUAL configuration. Set MALIOC_ROOT to a mali_offline_compiler folder to bundle it automatically." />
+  </Target>
+
+</Project>

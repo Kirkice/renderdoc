@@ -24,14 +24,17 @@
 
 #include "MCPExternalTools.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QTemporaryFile>
 #include <string.h>
 #include "renderdoc_replay.h"
@@ -186,6 +189,92 @@ bool MetricNameIs(const QString &name, const char *expected)
 {
   return name.compare(QString::fromUtf8(expected), Qt::CaseInsensitive) == 0;
 }
+
+const MaliMetric *FindMaliMetricAny(const MaliReport &report, const QStringList &names)
+{
+  for(const QString &name : names)
+  {
+    const MaliMetric *metric = FindMaliMetric(report, name);
+    if(metric != NULL)
+      return metric;
+  }
+  return NULL;
+}
+
+void CopyMetricValue(const MaliMetric *metric, bool &hasValue, double &value)
+{
+  if(metric != NULL && metric->numeric)
+  {
+    hasValue = true;
+    value = metric->value;
+  }
+}
+
+bool ParseMaliBoolean(const QString &text, bool &value)
+{
+  const QString normalized = text.trimmed().toLower();
+  if(normalized.contains(QStringLiteral("no")) || normalized.contains(QStringLiteral("false")) ||
+     normalized.contains(QStringLiteral("none")) || normalized.contains(QStringLiteral("off")))
+  {
+    value = false;
+    return true;
+  }
+  if(normalized.contains(QStringLiteral("yes")) || normalized.contains(QStringLiteral("true")) ||
+     normalized.contains(QStringLiteral("spill")) || normalized.contains(QStringLiteral("on")))
+  {
+    value = true;
+    return true;
+  }
+  return false;
+}
+
+MaliCycleBreakdown ParseCycleBreakdown(const QString &text)
+{
+  MaliCycleBreakdown result;
+  if(text.contains(QStringLiteral("n/a"), Qt::CaseInsensitive))
+    return result;
+
+  const QRegularExpression numberPattern(
+      QStringLiteral("[-+]?\\d+(?:\\.\\d+)?(?:[eE][-+]?\\d+)?"));
+  QRegularExpressionMatchIterator it = numberPattern.globalMatch(text);
+  double values[4] = {};
+  int count = 0;
+  int lastEnd = 0;
+  while(it.hasNext() && count < 4)
+  {
+    const QRegularExpressionMatch match = it.next();
+    values[count++] = match.captured(0).toDouble();
+    lastEnd = match.capturedEnd(0);
+  }
+  if(count < 4)
+    return result;
+
+  result.available = true;
+  result.arithmetic = values[0];
+  result.loadStore = values[1];
+  result.varying = values[2];
+  result.texture = values[3];
+  result.bound = text.mid(lastEnd).trimmed();
+  return result;
+}
+
+void AddRiskSignal(QStringList &risks, const QString &signal)
+{
+  if(!risks.contains(signal))
+    risks.push_back(signal);
+}
+
+QJsonObject MaliCycleBreakdownToJson(const MaliCycleBreakdown &breakdown)
+{
+  QJsonObject json;
+  json[QStringLiteral("available")] = breakdown.available;
+  json[QStringLiteral("arithmetic")] = breakdown.arithmetic;
+  json[QStringLiteral("loadStore")] = breakdown.loadStore;
+  json[QStringLiteral("varying")] = breakdown.varying;
+  json[QStringLiteral("texture")] = breakdown.texture;
+  json[QStringLiteral("bound")] = breakdown.bound;
+  return json;
+}
 }    // namespace
 
 QStringList MaliDeviceNames()
@@ -219,22 +308,44 @@ QString NormalizeMaliDevice(const QString &device)
   return QString();
 }
 
+QString MaliExecutableName()
+{
+#ifdef Q_OS_WIN
+  return QStringLiteral("malioc.exe");
+#else
+  return QStringLiteral("malioc");
+#endif
+}
+
+QString MaliExecutableInDirectory(const QString &directory)
+{
+  return QDir::cleanPath(QDir(directory).filePath(MaliExecutableName()));
+}
+
 QString ResolveMaliExecutablePath(const QString &configured)
 {
   const QString trimmed = configured.trimmed();
-  if(trimmed.isEmpty())
-    return QString();
-
-  const QFileInfo info(trimmed);
-  if(info.isDir() || trimmed.endsWith(QLatin1Char('/')) || trimmed.endsWith(QLatin1Char('\\')))
+  if(!trimmed.isEmpty())
   {
-#ifdef Q_OS_WIN
-    return QDir(trimmed).filePath(QStringLiteral("malioc.exe"));
-#else
-    return QDir(trimmed).filePath(QStringLiteral("malioc"));
-#endif
+    const QFileInfo info(trimmed);
+    if(info.isDir() || trimmed.endsWith(QLatin1Char('/')) || trimmed.endsWith(QLatin1Char('\\')))
+      return MaliExecutableInDirectory(trimmed);
+
+    return QDir::cleanPath(trimmed);
   }
-  return QDir::cleanPath(trimmed);
+
+  // Local packages carry the complete Mali Offline Compiler runtime alongside
+  // qrenderdoc. Keep an explicit user setting authoritative, but otherwise make
+  // the bundled copy work without requiring any configuration.
+  const QString bundled =
+      MaliExecutableInDirectory(QDir(QCoreApplication::applicationDirPath()).filePath(
+          QStringLiteral("mali_offline_compiler")));
+  if(QFileInfo(bundled).isFile())
+    return bundled;
+
+  // This also preserves the normal Arm installer workflow, which registers
+  // malioc on PATH, and makes local developer installations convenient.
+  return QStandardPaths::findExecutable(MaliExecutableName());
 }
 
 QJsonObject MaliTargetOptionsToJson(const MaliTargetOptions &options)
@@ -249,14 +360,60 @@ QJsonObject MaliTargetOptionsToJson(const MaliTargetOptions &options)
 
 bool MaliSupportsEncoding(int encoding)
 {
-  return encoding == int(uint32_t(ShaderEncoding::SPIRV));
+  // malioc consumes SPIR-V binary modules (Vulkan captures, and the SPIR-V an
+  // OpenGL ES capture can carry) as well as GLSL source text, which is what a
+  // typical OpenGL ES capture actually stores. Treat all of those as analysable
+  // and reject DXBC/DXIL/HLSL/assembly/Slang with an explicit limitation rather
+  // than handing malioc something it cannot read.
+  return encoding == int(uint32_t(ShaderEncoding::SPIRV)) ||
+         encoding == int(uint32_t(ShaderEncoding::OpenGLSPIRV)) ||
+         encoding == int(uint32_t(ShaderEncoding::GLSL));
+}
+
+QString MaliStageExtension(const QString &stage)
+{
+  const QString s = stage.trimmed().toLower();
+  if(s == QStringLiteral("vertex")) return QStringLiteral(".vert");
+  if(s == QStringLiteral("hull")) return QStringLiteral(".tesc");
+  if(s == QStringLiteral("domain")) return QStringLiteral(".tese");
+  if(s == QStringLiteral("geometry")) return QStringLiteral(".geom");
+  if(s == QStringLiteral("pixel") || s == QStringLiteral("fragment")) return QStringLiteral(".frag");
+  if(s == QStringLiteral("compute")) return QStringLiteral(".comp");
+  if(s == QStringLiteral("raygen")) return QStringLiteral(".rgen");
+  if(s == QStringLiteral("intersection")) return QStringLiteral(".rint");
+  if(s == QStringLiteral("anyhit")) return QStringLiteral(".rahit");
+  if(s == QStringLiteral("closesthit")) return QStringLiteral(".rchit");
+  if(s == QStringLiteral("miss")) return QStringLiteral(".rmiss");
+  if(s == QStringLiteral("callable")) return QStringLiteral(".rcall");
+  // malioc infers the stage from a recognised source extension, so an unknown
+  // stage falls back to a generic GLSL suffix where the caller must pass the
+  // explicit stage flag through extra args.
+  return QStringLiteral(".glsl");
 }
 
 QString MaliEncodingExtension(int encoding)
 {
-  if(encoding == int(uint32_t(ShaderEncoding::SPIRV)))
+  if(encoding == int(uint32_t(ShaderEncoding::SPIRV)) ||
+     encoding == int(uint32_t(ShaderEncoding::OpenGLSPIRV)))
     return QStringLiteral(".spv");
+  // GLSL source has no single canonical extension - the captured stage decides
+  // it, and BuildMaliShaderExport resolves it from the stage.
   return QString();
+}
+
+QString MaliEncodingName(int encoding)
+{
+  if(encoding == int(uint32_t(ShaderEncoding::SPIRV))) return QStringLiteral("SPIR-V (Vulkan)");
+  if(encoding == int(uint32_t(ShaderEncoding::OpenGLSPIRV))) return QStringLiteral("SPIR-V (OpenGL)");
+  if(encoding == int(uint32_t(ShaderEncoding::GLSL))) return QStringLiteral("GLSL");
+  if(encoding == int(uint32_t(ShaderEncoding::HLSL))) return QStringLiteral("HLSL");
+  if(encoding == int(uint32_t(ShaderEncoding::DXBC))) return QStringLiteral("DXBC");
+  if(encoding == int(uint32_t(ShaderEncoding::DXIL))) return QStringLiteral("DXIL");
+  if(encoding == int(uint32_t(ShaderEncoding::SPIRVAsm))) return QStringLiteral("SPIR-V assembly");
+  if(encoding == int(uint32_t(ShaderEncoding::OpenGLSPIRVAsm)))
+    return QStringLiteral("SPIR-V assembly (OpenGL)");
+  if(encoding == int(uint32_t(ShaderEncoding::Slang))) return QStringLiteral("Slang");
+  return QStringLiteral("Unknown");
 }
 
 MaliShaderExport BuildMaliShaderExport(const QString &stage, const QString &entryPoint,
@@ -269,15 +426,40 @@ MaliShaderExport BuildMaliShaderExport(const QString &stage, const QString &entr
   result.resourceValue = resourceValue;
   result.encoding = encoding;
   result.contents = rawBytes;
-  result.extension = MaliEncodingExtension(encoding);
-  result.binary = true;
+  result.revision = QString::fromLatin1(
+      QCryptographicHash::hash(rawBytes, QCryptographicHash::Sha256).toHex());
+  const bool supported = MaliSupportsEncoding(encoding);
+
+  // SPIR-V is a binary module and the bare ".spv" suffix is enough for malioc to
+  // detect the stage from the module itself. GLSL capture data is source text, so
+  // the extension carries the stage (".frag", ".comp", ...) that malioc uses to
+  // select the pipeline stage. An unsupported encoding keeps the extension empty
+  // rather than inventing one malioc would mistake for a real shader.
+  if(encoding == int(uint32_t(ShaderEncoding::SPIRV)) ||
+     encoding == int(uint32_t(ShaderEncoding::OpenGLSPIRV)))
+  {
+    result.binary = true;
+    result.extension = QStringLiteral(".spv");
+  }
+  else if(supported)
+  {
+    result.binary = false;
+    result.extension = MaliStageExtension(stage);
+  }
+
   result.suggestedFileName = SafeFilePart(entryPoint) + QLatin1Char('_') + SafeFilePart(stage) +
                              result.extension;
 
-  if(!MaliSupportsEncoding(encoding))
-    result.limitation = QObject::tr("Mali Offline Compiler integration supports captured SPIR-V only.");
+  if(!supported)
+    result.limitation = QObject::tr("Mali Offline Compiler can only analyse captured SPIR-V or "
+                                    "GLSL shader source; this shader is %1.")
+                            .arg(MaliEncodingName(encoding));
   else if(rawBytes.isEmpty())
-    result.limitation = QObject::tr("The capture did not retain any shader bytecode to export.");
+    result.limitation = QObject::tr("The capture did not retain any shader data to export.");
+  else if(byteLength >= 0 && byteLength != rawBytes.size())
+    result.limitation = QObject::tr("The capture retained %1 of %2 shader bytes; analysis may be incomplete.")
+                            .arg(rawBytes.size())
+                            .arg(byteLength);
 
   return result;
 }
@@ -397,6 +579,60 @@ MaliReport ParseMaliOutput(const QString &stdoutText, const QString &stderrText,
     if(spills != NULL) report.spillBytes = spills->value;
   }
 
+  CopyMetricValue(FindMaliMetricAny(report, {QStringLiteral("Work registers"),
+                                               QStringLiteral("Registers used")}),
+                  report.hasWorkRegisters, report.workRegisters);
+  CopyMetricValue(FindMaliMetricAny(report, {QStringLiteral("Uniform registers")}),
+                  report.hasUniformRegisters, report.uniformRegisters);
+  CopyMetricValue(FindMaliMetricAny(report, {QStringLiteral("Stack size")}), report.hasStackSize,
+                  report.stackSize);
+
+  const MaliMetric *spilling = FindMaliMetricAny(
+      report, {QStringLiteral("Stack spilling"), QStringLiteral("Spilling")});
+  if(spilling != NULL)
+  {
+    const QString value = spilling->numeric ? QString::number(spilling->value) : spilling->text;
+    report.stackSpillingKnown = ParseMaliBoolean(value, report.stackSpilling);
+  }
+  if(!report.stackSpillingKnown && spills != NULL)
+  {
+    report.stackSpillingKnown = true;
+    report.stackSpilling = spills->value > 0.0;
+  }
+
+  const MaliMetric *totalPath = FindMaliMetricAny(
+      report, {QStringLiteral("Total instruction cycles"), QStringLiteral("Total path cycles")});
+  const MaliMetric *shortestPath = FindMaliMetricAny(
+      report, {QStringLiteral("Shortest path cycles"), QStringLiteral("Shortest cycles")});
+  const MaliMetric *longestPath = FindMaliMetricAny(
+      report, {QStringLiteral("Longest path cycles"), QStringLiteral("Longest cycles")});
+  if(totalPath != NULL) report.totalPath = ParseCycleBreakdown(totalPath->raw);
+  if(shortestPath != NULL) report.shortestPath = ParseCycleBreakdown(shortestPath->raw);
+  if(longestPath != NULL) report.longestPath = ParseCycleBreakdown(longestPath->raw);
+
+  if(report.hasWorkRegisters)
+  {
+    if(report.workRegisters >= 64.0)
+      AddRiskSignal(report.riskSignals, QObject::tr("High register pressure"));
+    else if(report.workRegisters >= 32.0)
+      AddRiskSignal(report.riskSignals, QObject::tr("Register-heavy shader"));
+  }
+  if(report.stackSpillingKnown && report.stackSpilling)
+    AddRiskSignal(report.riskSignals, QObject::tr("Stack spilling"));
+  if(report.longestPath.available)
+  {
+    const double longest = qMax(qMax(report.longestPath.arithmetic, report.longestPath.loadStore),
+                                qMax(report.longestPath.varying, report.longestPath.texture));
+    if(longest >= 64.0)
+      AddRiskSignal(report.riskSignals, QObject::tr("Long critical path"));
+    else if(longest >= 32.0)
+      AddRiskSignal(report.riskSignals, QObject::tr("Long path"));
+  }
+  if(report.totalPath.bound.contains(QStringLiteral("texture"), Qt::CaseInsensitive) ||
+     report.shortestPath.bound.contains(QStringLiteral("texture"), Qt::CaseInsensitive) ||
+     report.longestPath.bound.contains(QStringLiteral("texture"), Qt::CaseInsensitive))
+    AddRiskSignal(report.riskSignals, QObject::tr("Texture-bound path"));
+
   if(exitCode != 0)
   {
     report.error = QObject::tr("malioc exited with code %1.").arg(exitCode);
@@ -438,6 +674,18 @@ QJsonObject MaliReportToJson(const MaliReport &report)
   result[QStringLiteral("totalInstructions")] = report.totalInstructions;
   result[QStringLiteral("registers")] = report.registers;
   result[QStringLiteral("spillBytes")] = report.spillBytes;
+  result[QStringLiteral("hasWorkRegisters")] = report.hasWorkRegisters;
+  result[QStringLiteral("workRegisters")] = report.workRegisters;
+  result[QStringLiteral("hasUniformRegisters")] = report.hasUniformRegisters;
+  result[QStringLiteral("uniformRegisters")] = report.uniformRegisters;
+  result[QStringLiteral("hasStackSize")] = report.hasStackSize;
+  result[QStringLiteral("stackSize")] = report.stackSize;
+  result[QStringLiteral("stackSpillingKnown")] = report.stackSpillingKnown;
+  result[QStringLiteral("stackSpilling")] = report.stackSpilling;
+  result[QStringLiteral("totalPath")] = MaliCycleBreakdownToJson(report.totalPath);
+  result[QStringLiteral("shortestPath")] = MaliCycleBreakdownToJson(report.shortestPath);
+  result[QStringLiteral("longestPath")] = MaliCycleBreakdownToJson(report.longestPath);
+  result[QStringLiteral("riskSignals")] = QJsonArray::fromStringList(report.riskSignals);
   result[QStringLiteral("error")] = report.error;
   result[QStringLiteral("rawOutput")] = report.rawOutput;
   result[QStringLiteral("confidence")] = ConfidenceName(report.confidence);
@@ -492,13 +740,14 @@ MaliRunResult RunMaliAnalysis(const MaliRunRequest &request, const std::function
   if(result.executable.isEmpty())
   {
     result.status = MaliRunStatus::NotConfigured;
-    result.hint = QObject::tr("Configure MCP_MaliCompilerPath with malioc or its containing directory.");
+    result.hint = QObject::tr("No malioc executable was found. Place it in a mali_offline_compiler "
+                              "folder next to qrenderdoc, or add it to PATH.");
     return result;
   }
   if(!QFileInfo::exists(result.executable))
   {
     result.status = MaliRunStatus::ToolMissing;
-    result.hint = QObject::tr("The configured malioc executable does not exist: %1").arg(result.executable);
+    result.hint = QObject::tr("The selected malioc executable does not exist: %1").arg(result.executable);
     return result;
   }
   if(request.shaderPath.isEmpty() || !QFileInfo::exists(request.shaderPath))
@@ -630,6 +879,7 @@ QJsonObject MaliEventAnalysisToJson(const MaliEventAnalysis &analysis)
   shader[QStringLiteral("extension")] = analysis.shader.extension;
   shader[QStringLiteral("suggestedFileName")] = analysis.shader.suggestedFileName;
   shader[QStringLiteral("byteLength")] = analysis.shader.contents.size();
+  shader[QStringLiteral("revision")] = analysis.shader.revision;
   shader[QStringLiteral("limitation")] = analysis.shader.limitation;
   json[QStringLiteral("shader")] = shader;
   json[QStringLiteral("run")] = MaliRunResultToJson(analysis.run);
@@ -728,9 +978,9 @@ int RegisterExternalToolTools(ToolRegistry &registry, QueryAdapter &adapter)
     registry.Add(
         ToolDefinition{QStringLiteral("renderdoc_analyzeMaliShader"),
                        QStringLiteral("Analyze Bound Shader With Mali Offline Compiler"),
-                       QStringLiteral("Export the SPIR-V bytecode for a shader bound at an event, run the "
-                                      "configured Mali Offline Compiler without a shell, and return parsed metrics "
-                                      "with event and shader evidence."),
+                       QStringLiteral("Export the shader bound at an event (SPIR-V bytecode, or GLSL source for "
+                                      "OpenGL captures), run the configured Mali Offline Compiler without a shell, "
+                                      "and return parsed metrics with event and shader evidence."),
                        ToolEffects::ReadOnly,
                        ToolRequirements::LoadedCapture | ToolRequirements::ReplayController, schema},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {

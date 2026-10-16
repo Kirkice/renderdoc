@@ -271,6 +271,7 @@ SOURCES += Code/qrenderdoc.cpp \
     Code/AI/MCPExternalTools.cpp \
     Code/AI/MCPSourceMapping.cpp \
     Windows/Dialogs/InvestigationReportDialog.cpp \
+    Windows/Dialogs/MaliAnalysisDialog.cpp \
     Windows/Dialogs/MCPStatusDialog.cpp
 HEADERS += Code/CaptureContext.h \
     Code/qprocessinfo.h \
@@ -375,6 +376,7 @@ HEADERS += Code/CaptureContext.h \
     Code/AI/MCPSourceMapping.h \
     Code/AI/MCPHttpServer.h \
     Windows/Dialogs/InvestigationReportDialog.h \
+    Windows/Dialogs/MaliAnalysisDialog.h \
     Windows/Dialogs/MCPStatusDialog.h
 FORMS    += Windows/Dialogs/AboutDialog.ui \
     Windows/Dialogs/CrashDialog.ui \

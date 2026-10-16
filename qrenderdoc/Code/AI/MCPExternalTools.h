@@ -150,18 +150,27 @@ struct MaliShaderExport
   QString suggestedFileName;  // "<entryPoint>_<stage><extension>", filesystem-safe
   QByteArray contents;
 
+  // SHA-256 of contents. This identifies the exact shader revision submitted to
+  // malioc and lets UI clients avoid presenting an analysis for different bytes.
+  QString revision;
+
   // Non-empty when the export could not faithfully represent the shader (e.g. an
   // encoding malioc cannot read), so the caller reports a limitation rather than
   // running the compiler on something it will reject.
   QString limitation;
 };
 
-// Which file extension identifies a shader encoding to malioc, and whether that
-// encoding is something malioc can actually compile. Vulkan captures carry
-// SPIR-V and that is what this integration supports; anything else reports a
-// limitation instead of guessing.
+// Whether malioc can read a captured shader with this encoding. Vulkan captures
+// carry SPIR-V and OpenGL captures carry either SPIR-V or the GLSL source text;
+// all three are things malioc consumes directly (SPIR-V as a binary module, GLSL
+// as a `.vert`/`.frag`/... source file). Anything else - DXBC, DXIL, HLSL,
+// SPIR-V assembly, Slang - reports a limitation instead of guessing.
 bool MaliSupportsEncoding(int encoding);
 QString MaliEncodingExtension(int encoding);
+
+// A short, human readable name for a captured shader encoding, used by the UI to
+// describe what was actually handed to malioc rather than assuming SPIR-V.
+QString MaliEncodingName(int encoding);
 
 // Build the export descriptor for one shader. `rawBytes` are the bytes the
 // replay controller returned for the shader; `byteLength` is the length the
@@ -209,6 +218,19 @@ struct MaliSection
   QVector<MaliMetric> metrics;
 };
 
+// The A/LS/V/T breakdown printed by recent malioc versions for total, shortest
+// and longest instruction paths. `available` is false when the compiler printed
+// an unavailable value such as "N/A".
+struct MaliCycleBreakdown
+{
+  bool available = false;
+  double arithmetic = 0.0;
+  double loadStore = 0.0;
+  double varying = 0.0;
+  double texture = 0.0;
+  QString bound;
+};
+
 // The structured compiler report. `ran` is true as soon as a process was started,
 // regardless of exit code, so a client can distinguish "never ran" (not
 // configured / tool missing) from "ran and failed".
@@ -229,6 +251,21 @@ struct MaliReport
   double totalInstructions = 0.0;
   double registers = 0.0;
   double spillBytes = 0.0;
+
+  // Performance-oriented fields promoted from the raw report. They remain
+  // optional because malioc output differs by compiler version and GPU family.
+  bool hasWorkRegisters = false;
+  double workRegisters = 0.0;
+  bool hasUniformRegisters = false;
+  double uniformRegisters = 0.0;
+  bool hasStackSize = false;
+  double stackSize = 0.0;
+  bool stackSpillingKnown = false;
+  bool stackSpilling = false;
+  MaliCycleBreakdown totalPath;
+  MaliCycleBreakdown shortestPath;
+  MaliCycleBreakdown longestPath;
+  QStringList riskSignals;
 
   QString error;      // non-empty when the run or the parse failed
   QString rawOutput;  // stdout+stderr, always kept so nothing is lost
@@ -261,7 +298,7 @@ QJsonObject MaliReportToJson(const MaliReport &report);
 // explain what to fix.
 enum class MaliRunStatus
 {
-  NotConfigured,      // no compiler path in the config
+  NotConfigured,      // no configured, bundled, or PATH-discovered compiler
   ToolMissing,        // configured, but the executable is not there
   UnsupportedShader,  // the shader encoding cannot be compiled
   Timeout,            // the process exceeded MaliTargetOptions::timeoutMs

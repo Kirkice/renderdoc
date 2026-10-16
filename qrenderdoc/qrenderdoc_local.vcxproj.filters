@@ -360,6 +360,9 @@
     <ClCompile Include="Windows\Dialogs\SettingsDialog.cpp">
       <Filter>Windows\Dialogs</Filter>
     </ClCompile>
+    <ClCompile Include="Windows\Dialogs\MaliAnalysisDialog.cpp">
+      <Filter>Windows\Dialogs</Filter>
+    </ClCompile>
     <ClCompile Include="Widgets\OrderedListEditor.cpp">
       <Filter>Widgets</Filter>
     </ClCompile>
@@ -1186,6 +1189,9 @@
     </ClInclude>
     <ClInclude Include="Code\Interface\PersistentConfig.h">
       <Filter>Code\Interface</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\Dialogs\MaliAnalysisDialog.h">
+      <Filter>Windows\Dialogs</Filter>
     </ClInclude>
     <ClInclude Include="Code\Interface\Helpers.h">
       <Filter>Code\Interface</Filter>

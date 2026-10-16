@@ -37,7 +37,9 @@
 #include <QShortcut>
 #include <QToolTip>
 #include "Code/Resources.h"
+#include "Code/AI/MCPExternalTools.h"
 #include "Code/ScintillaSyntax.h"
+#include "Windows/Dialogs/MaliAnalysisDialog.h"
 #include "Widgets/Extended/RDLabel.h"
 #include "Widgets/FindReplace.h"
 #include "scintilla/include/SciLexer.h"
@@ -6515,6 +6517,34 @@ void ShaderViewer::on_unrefresh_clicked()
   m_Saved = false;
 
   updateEditState();
+}
+
+void ShaderViewer::on_maliAnalysis_clicked()
+{
+  if(m_ShaderDetails == NULL)
+  {
+    RDDialog::information(this, tr("Mali Offline Compiler"),
+                          tr("Mali analysis is available for a capture-backed shader view. "
+                             "Open a shader from the Pipeline State viewer first."));
+    return;
+  }
+
+  QByteArray rawBytes;
+  if(!m_ShaderDetails->rawBytes.empty())
+  {
+    rawBytes = QByteArray(reinterpret_cast<const char *>(m_ShaderDetails->rawBytes.data()),
+                          int(m_ShaderDetails->rawBytes.size()));
+  }
+
+  uint64_t resourceValue = 0;
+  memcpy(&resourceValue, &m_ShaderDetails->resourceId, sizeof(resourceValue));
+  const MCP::MaliShaderExport shader = MCP::BuildMaliShaderExport(
+      ToQStr(m_ShaderDetails->stage, m_Ctx.APIProps().pipelineType),
+      QString(m_ShaderDetails->entryPoint), resourceValue,
+      int(uint32_t(m_ShaderDetails->encoding)), rawBytes, int64_t(m_ShaderDetails->rawBytes.size()));
+
+  MaliAnalysisDialog *dialog = new MaliAnalysisDialog(m_Ctx, shader, this);
+  dialog->show();
 }
 
 void ShaderViewer::on_refresh_clicked()

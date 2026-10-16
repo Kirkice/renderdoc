@@ -3272,10 +3272,16 @@ TEST_CASE("Mali Offline Compiler helpers are deterministic", "[mcp][mali]")
 
   const MaliShaderExport shader =
       BuildMaliShaderExport(QStringLiteral("Pixel"), QStringLiteral("main"), 42,
-                            int(uint32_t(ShaderEncoding::SPIRV)), QByteArray("SPV", 3), 3);
+                             int(uint32_t(ShaderEncoding::SPIRV)), QByteArray("SPV", 3), 3);
   CHECK(shader.limitation.isEmpty());
   CHECK(shader.extension == QStringLiteral(".spv"));
   CHECK(shader.suggestedFileName == QStringLiteral("main_Pixel.spv"));
+  CHECK(shader.revision.size() == 64);
+
+  const MaliShaderExport truncated =
+      BuildMaliShaderExport(QStringLiteral("Pixel"), QStringLiteral("main"), 42,
+                            int(uint32_t(ShaderEncoding::SPIRV)), QByteArray("SPV", 3), 4);
+  CHECK_FALSE(truncated.limitation.isEmpty());
 
   const MaliShaderExport unsupported =
       BuildMaliShaderExport(QStringLiteral("Vertex"), QStringLiteral("main"), 7, 0,
@@ -3310,6 +3316,31 @@ TEST_CASE("Mali Offline Compiler helpers are deterministic", "[mcp][mali]")
   REQUIRE(FindMaliMetric(report, QStringLiteral("total cycles")) != NULL);
   CHECK(FindMaliMetric(report, QStringLiteral("cycles")) == NULL);
   CHECK(report.confidence == Confidence::Confirmed);
+
+  const MaliReport detailed = ParseMaliOutput(
+      QStringLiteral("Work registers: 64\nUniform registers: 128\nStack size: 32 bytes\n"
+                     "Stack spilling: yes\nTotal instruction cycles: 15.38 40.20 0.47 13.38 LS\n"
+                     "Shortest path cycles: 5.95 18.00 0.47 1.89 Texture\n"
+                     "Longest path cycles: N/A N/A N/A N/A\n"),
+      QString(), 0);
+  CHECK(detailed.hasWorkRegisters);
+  CHECK(detailed.workRegisters == 64.0);
+  CHECK(detailed.hasUniformRegisters);
+  CHECK(detailed.hasStackSize);
+  CHECK(detailed.stackSpillingKnown);
+  CHECK(detailed.stackSpilling);
+  CHECK(detailed.totalPath.available);
+  CHECK(detailed.shortestPath.available);
+  CHECK_FALSE(detailed.longestPath.available);
+  CHECK(detailed.riskSignals.contains(QStringLiteral("High register pressure")));
+  CHECK(detailed.riskSignals.contains(QStringLiteral("Stack spilling")));
+  CHECK(detailed.riskSignals.contains(QStringLiteral("Texture-bound path")));
+  const QJsonObject detailedJson = MaliReportToJson(detailed);
+  CHECK(detailedJson.value(QStringLiteral("workRegisters")).toDouble() == 64.0);
+  CHECK(detailedJson.value(QStringLiteral("stackSpilling")).toBool());
+  CHECK(detailedJson.value(QStringLiteral("shortestPath")).toObject()
+            .value(QStringLiteral("available"))
+            .toBool());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

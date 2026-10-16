@@ -123,18 +123,19 @@ EnvironmentDiagnosticReport BuildEnvironmentDiagnosticReport(const EnvironmentDi
   {
     AddCheck(report, QStringLiteral("mali"), QStringLiteral("Mali Offline Compiler"),
              DiagnosticSeverity::Info, false,
-             QStringLiteral("Mali Offline Compiler is not configured."),
-             QStringLiteral("Set MCP_MaliCompilerPath to malioc or its containing directory to enable analysis."));
+             QStringLiteral("Mali Offline Compiler was not found."),
+             QStringLiteral("Place malioc in a mali_offline_compiler folder next to qrenderdoc, "
+                            "or add it to PATH."));
   }
   else if(!input.maliExecutableExists)
   {
     AddCheck(report, QStringLiteral("mali"), QStringLiteral("Mali Offline Compiler"),
              DiagnosticSeverity::Error, false,
-             QStringLiteral("The configured Mali Offline Compiler executable is unavailable: %1")
+             QStringLiteral("The Mali Offline Compiler executable is unavailable: %1")
                  .arg(input.maliResolvedExecutable.isEmpty() ? input.maliConfiguredPath
                                                              : input.maliResolvedExecutable),
-             QStringLiteral("Correct MCP_MaliCompilerPath or install a compatible malioc executable."));
-    AddLimitation(report, QStringLiteral("Configured Mali Offline Compiler executable is unavailable."));
+             QStringLiteral("Install a compatible malioc executable next to qrenderdoc or on PATH."));
+    AddLimitation(report, QStringLiteral("Mali Offline Compiler executable is unavailable."));
   }
   else
   {

@@ -203,7 +203,6 @@ SettingsDialog::SettingsDialog(ICaptureContext &ctx, QWidget *parent)
   ui->MCP_Enabled->setChecked(m_Ctx.Config().MCP_Enabled);
   ui->MCP_Port->setValue(m_Ctx.Config().MCP_Port);
   ui->MCP_AllowSensitiveData->setChecked(m_Ctx.Config().MCP_AllowSensitiveData);
-  ui->MCP_MaliCompilerPath->setText(m_Ctx.Config().MCP_MaliCompilerPath);
   ui->MCP_MaliDevice->setText(m_Ctx.Config().MCP_MaliDevice);
   ui->MCP_MaliExtraArgs->setText(m_Ctx.Config().MCP_MaliExtraArgs);
 
@@ -602,15 +601,6 @@ void SettingsDialog::on_MCP_AllowSensitiveData_toggled(bool checked)
 
   m_Ctx.Config().MCP_AllowSensitiveData = ui->MCP_AllowSensitiveData->isChecked();
 
-  m_Ctx.Config().Save();
-}
-
-void SettingsDialog::on_MCP_MaliCompilerPath_textEdited(const QString &path)
-{
-  if(m_Init)
-    return;
-
-  m_Ctx.Config().MCP_MaliCompilerPath = path;
   m_Ctx.Config().Save();
 }
 

@@ -366,6 +366,26 @@
      </widget>
     </item>
     <item>
+     <widget class="QToolButton" name="maliAnalysis">
+      <property name="toolTip">
+       <string>Run the configured Mali Offline Compiler on the captured SPIR-V shader</string>
+      </property>
+      <property name="text">
+       <string>Mali Analysis</string>
+      </property>
+      <property name="icon">
+       <iconset resource="../Resources/resources.qrc">
+        <normaloff>:/information.png</normaloff>:/information.png</iconset>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextBesideIcon</enum>
+      </property>
+      <property name="autoRaise">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
      <widget class="Line" name="line">
       <property name="orientation">
        <enum>Qt::Vertical</enum>

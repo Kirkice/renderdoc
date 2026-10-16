@@ -29,6 +29,43 @@ pushd Win32/Release
 find * -not -path 'obj*' -and -not -path '*.lib' -and -not -path 'pymodules*' -exec cp -r --parents '{}' ../../dist/Release32/ \;
 popd
 
+# Bundle the Arm Mali Offline Compiler runtime in x64 packages so the analyzer
+# works out of the box with no configuration. The runtime must contain
+# malioc.exe, graphics/, and external/glslang.exe.
+#
+# The source directory is found automatically (MALIOC_ROOT wins if set, then the
+# malioc.props defaults). Set MaliOCEnabled=no to opt out for a public release.
+MALIOC_WIX_DEFINE="-dIncludeMaliOC=no"
+if [[ "$MaliOCEnabled" != "no" ]]; then
+	MALIOC_SOURCE="${MALIOC_ROOT}"
+	if [ -z "${MALIOC_SOURCE}" ]; then
+		for candidate in \
+			"${REPO_ROOT}/mali_offline_compiler" \
+			"E:/Application/Arm Performance Studio 2024.6/mali_offline_compiler" \
+			"C:/Program Files/Arm/Arm Performance Studio 2024.6/mali_offline_compiler" \
+			"C:/Program Files/Arm/Arm Performance Studio/mali_offline_compiler" \
+			"C:/Program Files (x86)/Arm/Arm Performance Studio/mali_offline_compiler"; do
+			if [ -f "${candidate}/malioc.exe" ]; then
+				MALIOC_SOURCE="${candidate}"
+				break
+			fi
+		done
+	fi
+
+	if [ -n "${MALIOC_SOURCE}" ] && [ -f "${MALIOC_SOURCE}/malioc.exe" ] && [ -d "${MALIOC_SOURCE}/graphics" ] && [ -f "${MALIOC_SOURCE}/external/glslang.exe" ]; then
+		mkdir -p dist/Release64/mali_offline_compiler
+		cp -R "${MALIOC_SOURCE}/malioc.exe" "${MALIOC_SOURCE}/graphics" "${MALIOC_SOURCE}/external" dist/Release64/mali_offline_compiler/
+		MALIOC_WIX_DEFINE="-dIncludeMaliOC=yes"
+		echo "Bundled Mali Offline Compiler from ${MALIOC_SOURCE} into the x64 package."
+	else
+		echo "WARNING: No usable Mali Offline Compiler found (need malioc.exe, graphics/, and external/glslang.exe); skipping bundling."
+		echo "         Set MALIOC_ROOT to a mali_offline_compiler folder to enable it."
+		if [[ "$STRICT" == "yes" ]]; then
+			exit 1;
+		fi
+	fi
+fi
+
 # Copy in d3dcompiler from windows kit. Prefer 10 over 8.1 but either works
 if [ -f "${WIN_ROOT}c/Program Files (x86)/Windows Kits/10/Redist/D3D/x64/d3dcompiler_47.dll" ]; then
 	cp "${WIN_ROOT}c/Program Files (x86)/Windows Kits/10/Redist/D3D/x64/d3dcompiler_47.dll" dist/Release64/
@@ -140,7 +177,7 @@ if [[ "$STRICT" == "yes" ]]; then
 	fi
 fi
 
-"$WIX/bin/candle.exe" -o dist/Installer64.wixobj util/installer/Installer64.wxs
+"$WIX/bin/candle.exe" ${MALIOC_WIX_DEFINE} -o dist/Installer64.wixobj util/installer/Installer64.wxs
 "$WIX/bin/light.exe" -ext WixUIExtension -sw1076 -loc util/installer/customtext.wxl -o dist/Installer64.msi dist/Installer64.wixobj
 
 if [[ "$STRICT" == "yes" ]]; then

@@ -191,6 +191,7 @@ private slots:
   void on_floatView_clicked();
   void on_debugToggle_clicked();
   void on_toggleLog_clicked();
+  void on_maliAnalysis_clicked();
 
   void on_resources_sortByStep_clicked();
   void on_resources_sortByResource_clicked();

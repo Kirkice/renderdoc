@@ -169,6 +169,26 @@
             </Component>
           </Directory>
 
+          <?if $(var.IncludeMaliOC) = "yes" ?>
+          <Directory Id='maliOfflineCompiler' Name='mali_offline_compiler'>
+            <Component Id='MaliOfflineCompiler' Win64="yes" Guid='916D4D24-FD38-471C-AC3B-2B98555236F1'>
+              <File Id='maliocEXE' Name='malioc.exe' DiskId='1' Source='dist/Release64/mali_offline_compiler/malioc.exe' KeyPath='yes' />
+            </Component>
+            <Directory Id='maliGraphics' Name='graphics'>
+              <Component Id='MaliOfflineCompilerGraphics' Win64="yes" Guid='FFFA51EE-8FFB-42EA-9A44-D756F1A971A8'>
+                <File Id='MaliGxxR51DLL' Name='Mali-Gxx_r51p0-00rel0.dll' DiskId='1' Source='dist/Release64/mali_offline_compiler/graphics/Mali-Gxx_r51p0-00rel0.dll' KeyPath='yes' />
+                <File Id='MaliGxxR53DLL' Name='Mali-Gxx_r53p0-00rel0.dll' DiskId='1' Source='dist/Release64/mali_offline_compiler/graphics/Mali-Gxx_r53p0-00rel0.dll' />
+                <File Id='MaliT600R23DLL' Name='Mali-T600_r23p0-00rel0.dll' DiskId='1' Source='dist/Release64/mali_offline_compiler/graphics/Mali-T600_r23p0-00rel0.dll' />
+              </Component>
+            </Directory>
+            <Directory Id='maliExternal' Name='external'>
+              <Component Id='MaliOfflineCompilerExternal' Win64="yes" Guid='FC65E7A4-D1A7-413B-AC4D-08F70314D460'>
+                <File Id='MaliGlslangEXE' Name='glslang.exe' DiskId='1' Source='dist/Release64/mali_offline_compiler/external/glslang.exe' KeyPath='yes' />
+              </Component>
+            </Directory>
+          </Directory>
+          <?endif ?>
+
           <Directory Id='plugins' Name='plugins'>
             <Directory Id='plugins_amd' Name='amd'>
               <Directory Id='plugins_amd_isa' Name='isa'>
@@ -439,6 +459,12 @@
 
         <ComponentRef Id='PySide2Deps' />
         <ComponentRef Id='Shiboken2Deps' />
+
+        <?if $(var.IncludeMaliOC) = "yes" ?>
+        <ComponentRef Id='MaliOfflineCompiler' />
+        <ComponentRef Id='MaliOfflineCompilerGraphics' />
+        <ComponentRef Id='MaliOfflineCompilerExternal' />
+        <?endif ?>
 
         <ComponentRef Id='LICENSE' />
 
