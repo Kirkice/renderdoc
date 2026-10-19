@@ -37,7 +37,9 @@
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QPlainTextEdit;
 class QPushButton;
+class QSpinBox;
 class QTableWidget;
 
 // Forward-declared: implemented entirely in the .cpp as a plain QWidget with a custom paintEvent.
@@ -61,6 +63,9 @@ struct SystemTraceChartData
   uint32_t frameNumber = 0;
   // Event to draw as the highlighted interval, or 0 when nothing is selected.
   uint32_t highlightEvent = 0;
+  // False when no capture is open. The series are then drawn on their own time scale with no frame
+  // overlay, instead of the chart claiming that nothing has been imported.
+  bool captureLoaded = true;
 };
 
 // P1-4: frame-interior counter x system-level trace correlation view.
@@ -87,13 +92,24 @@ public:
 private:
   void browseForTrace();
   void reloadTrace();
+  // Two importers exist, so the format is chosen from the file itself: the JSON-lines interchange,
+  // or the Chrome Trace Event Format that a device capture produces.
   void loadTraceFrom(const QString &path);
+
+  // Record a system trace from the connected device. The capture is driven entirely through the
+  // device protocol (ExecCommand / PushFile / PullFile), so it works on any device the protocol can
+  // reach and does not involve Snapdragon Profiler itself.
+  void captureTrace();
+  // Capture is only offered while a protocol-backed host is connected and no capture is running.
+  void updateCaptureControls();
 
   // Kick off the (async) event-timing fetch and, once it arrives, correlate + redraw.
   void rebuild();
   bool traceUsable() const { return m_Trace.valid && !m_Trace.series.isEmpty(); }
 
   void updateHighlight();
+  // Draw the imported series without any frame overlay (no capture open, so nothing to align to).
+  void showTraceOnly();
   void selectEvent(uint32_t eventId);
   void updateStatusText();
 
@@ -116,4 +132,12 @@ private:
   QLabel *m_Status = NULL;
   QListWidget *m_Warnings = NULL;
   SystemTraceChart *m_Chart = NULL;
+
+  // Device capture controls. The log is kept visible after the capture finishes because every
+  // command the driver issued and every tool result is recorded there: a failure is diagnosable
+  // from what actually ran instead of from a single generic message.
+  QPushButton *m_Capture = NULL;
+  QSpinBox *m_CaptureSeconds = NULL;
+  QPlainTextEdit *m_CaptureLog = NULL;
+  bool m_Capturing = false;
 };

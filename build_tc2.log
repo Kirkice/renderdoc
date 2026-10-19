@@ -1,0 +1,26 @@
+
+  QC.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_QC.lib
+  Intel.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_Intel.lib
+  ARM.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_ARM.lib
+  renderdoc_dxgi.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_dxgi.lib
+  Read Git commit: 'f496fb7569ab4976b7a7fa6407b3283e80659df8'
+  renderdoc_dxil.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_dxil.lib
+  renderdoc_version.vcxproj -> H:\tmp\renderdoc\x64\Release\version.lib
+  renderdoc_spirv.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_spirv.lib
+  AMD.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_AMD.lib
+  renderdoc_dxbc.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_dxbc.lib
+  NV.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_NV.lib
+  renderdoc_gl.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_gl.lib
+  renderdoc_vulkan.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_vulkan.lib
+  renderdoc_d3d11.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_d3d11.lib
+  renderdoc_d3d12.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_d3d12.lib
+  Processing layer JSON file for RenderDoc 1.47
+  renderdoc.vcxproj -> H:\tmp\renderdoc\x64\Release\renderdoc.dll
+  TraceCapture.cpp
+  PythonInvokers.cpp
+  moc_ScintillaDocument.cpp
+  moc_ScintillaEdit.cpp
+  moc_ScintillaEditBase.cpp
+  moc_ScintillaQt.cpp
+LINK : fatal error C1047: 对象或库文件“H:\tmp\renderdoc\x64\Release\obj\qrenderdoc\renderdoc_python.obj”是使用与其他对象(如“H:\tmp\renderdoc\x64\Release\obj\qrenderdoc\LexCPP.obj”)不同的编译器版本创建的；请使用相同的编译器重新生成所有对象和库 [H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj]
+LINK : fatal error LNK1257: 代码生成失败 [H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj]

@@ -219,6 +219,105 @@ static const QCCounterMeta kQCCatalog[] = {
      "GMUCLK", CounterUnit::Hertz, CompType::Float, 600},
 };
 
+// ---- device-side gsl (id, group) catalog: PLACEHOLDER ----
+//
+// gsl_perfcounter_select and gsl_perfcounter_read address a counter by the PAIR
+// (id, group); the PERF_* name is a host-side label and is never sent to the
+// driver. The mapping therefore has to come from the device, and it is the one
+// piece of this backend that cannot be derived from the host SDP distribution:
+// the catalog lives in the device's own libgsl.so, and gsl_perfcounter_query_
+// selections() — the only documented way to enumerate it — reports *currently
+// selectable* counters, not a name-to-pair mapping.
+//
+// Status: NOT POPULATED. The table holds only a sentinel entry, because no pair has
+// been observed on real hardware yet. This is a deliberate placeholder, not an
+// unfinished edit and not a defect, and its consequence is stated plainly so it is
+// not mistaken for one: every counter keeps QCCounters::kUnknownGslId, so
+// BeginPass() selects nothing, EndSample() reads nothing, and QC counters return
+// zero on device even though the UI lists them by name.
+//
+// REQUIRES REAL-DEVICE VERIFICATION before any entry is enabled. To fill one in:
+//   1. On an Adreno device with a live GL/Vulkan context, dlopen libgsl.so and
+//      call gsl_perfcounter_query_selections() to learn which pairs the driver
+//      currently exposes.
+//   2. For each pair, select it alone, run a known workload, and read it back to
+//      establish what the counter actually measures.
+//   3. Compare the measured behaviour against the GGPM PERF_* semantics recorded
+//      in kQCCatalog, and only then record the pair here.
+// Until step 3 has been done for a name, guessing a pair is strictly worse than
+// reading nothing: a wrong id silently reports an unrelated hardware counter under
+// the wrong label, which is undetectable downstream. An explicit zero is honest;
+// a plausible-looking wrong number is not.
+//
+// `minAdrenoGen`-style filtering does not apply here: a pair is a property of a
+// specific driver build, so each entry records the generation it was verified on
+// and is only used on exactly that generation.
+struct QCGslPair
+{
+  const char *perfName;
+  uint32_t gslId;
+  uint32_t gslGroup;
+  // Adreno generation (600 / 700 / 800) the pair was verified on. A pair is a
+  // driver-build property, so it is not assumed to carry across generations.
+  uint32_t verifiedGen;
+};
+
+static const QCGslPair kQCVerifiedGslPairs[] = {
+    // PLACEHOLDER — awaiting real-device verification. Append entries in this form
+    // once a pair has been measured on hardware:
+    // {"PERF_PERCENT_SHADERS_BUSY", <id>, <group>, 740},
+
+    // One sentinel entry with no perfName keeps the table non-empty without
+    // claiming anything is verified. LookupGslPair() skips it and the count in
+    // LogCatalogStatistics() ignores it, so appending a real entry is all that is
+    // needed to enable a counter.
+    {NULL, 0, 0, 0},
+};
+
+// Number of entries that actually describe a verified counter. A sentinel-only
+// table reports 0, which is what makes the "nothing is addressable yet" warning
+// in LogCatalogStatistics() accurate rather than hard-coded.
+static uint32_t VerifiedGslPairCount()
+{
+  uint32_t count = 0;
+  for(const QCGslPair &pair : kQCVerifiedGslPairs)
+  {
+    if(pair.perfName != NULL)
+      count++;
+  }
+  return count;
+}
+
+// Looks up the verified (id, group) pair for a PERF_* name on a specific Adreno
+// generation. Returns false when no pair has been verified, which is the current
+// state of every entry - callers must treat that as "cannot address this counter
+// on the device", never as zero.
+static bool LookupGslPair(const char *perfName, uint32_t adrenoGen, uint32_t &gslId,
+                          uint32_t &gslGroup)
+{
+  if(perfName == NULL)
+    return false;
+
+  for(const QCGslPair &pair : kQCVerifiedGslPairs)
+  {
+    // Skip the sentinel and any name that is not this counter.
+    if(pair.perfName == NULL || strcmp(pair.perfName, perfName) != 0)
+      continue;
+
+    // The generation must match exactly: a pair is a property of a particular
+    // driver build, so reusing one across generations would silently address a
+    // different counter.
+    if(pair.verifiedGen == adrenoGen)
+    {
+      gslId = pair.gslId;
+      gslGroup = pair.gslGroup;
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Logs the section 8.4 taxonomy as a category/block breakdown. `descs` are the
 // counters that are actually available on this Adreno generation - the block table
 // describes the *full* on-device catalog regardless, so it is reported separately.
@@ -239,6 +338,7 @@ static void LogCatalogStatistics(const rdcarray<CounterDescription> &descs)
 
   const uint32_t catalogSize = (uint32_t)(sizeof(kQCCatalog) / sizeof(kQCCatalog[0]));
   const uint32_t blockCount = (uint32_t)(sizeof(kQCBlocks) / sizeof(kQCBlocks[0]));
+  const uint32_t pairCount = VerifiedGslPairCount();
 
   RDCLOG("Qualcomm counters: %u/%u derived counters available across %u categories "
          "(full catalog: %u blocks / %u PERF_* names)",
@@ -246,6 +346,22 @@ static void LogCatalogStatistics(const rdcarray<CounterDescription> &descs)
 
   for(const std::pair<const rdcstr, uint32_t> &cat : byCategory)
     RDCLOG("  [%s] %u counters", cat.first.c_str(), cat.second);
+
+  // State the device-addressability status up front rather than leaving an analyst
+  // to work out why every counter reads zero. This is a placeholder, not a defect:
+  // no (id, group) pair has been verified on real hardware yet.
+  if(pairCount == 0)
+  {
+    RDCWARN("Qualcomm counters: 0/%u counters have a verified device (id, group) pair - the catalog "
+            "is listed by name only and every sample will be zero until kQCVerifiedGslPairs is "
+            "populated on a real Adreno device",
+            catalogSize);
+  }
+  else
+  {
+    RDCLOG("Qualcomm counters: %u/%u counters have a verified device (id, group) pair",
+           pairCount, catalogSize);
+  }
 }
 
 // ---- device-side gsl_perfcounter_* entry point types ----
@@ -601,13 +717,18 @@ void QCCounters::BuildCatalog(uint32_t adrenoGen)
 
     // [未知] The device-resident (id, group) pair is not known host-side: it lives
     // in the device's own libgsl.so catalog, which is not part of the SDP
-    // distribution (section 8.9.1). We therefore record the pair as unknown and
-    // let the runtime resolve it if/when a device-side catalog is available.
+    // distribution (section 8.9.1). A pair is only used when it has been verified
+    // on this exact generation (kQCVerifiedGslPairs), which today is none of them,
+    // so the entry keeps kUnknownGslId and the runtime selects/reads nothing for it.
     QCBuiltCounter built = {};
     built.id = id;
     built.perfName = meta->perfName;
-    built.gslId = 0xffffffffu;
+    built.gslId = kUnknownGslId;
     built.gslGroup = 0;
+
+    if(LookupGslPair(meta->perfName, adrenoGen, built.gslId, built.gslGroup))
+      RDCLOG("Qualcomm counters: %s verified as (id %u, group %u) on Adreno gen %u",
+             meta->perfName, built.gslId, built.gslGroup, adrenoGen);
 
     m_Built.push_back(built);
     m_CounterDescriptions.push_back(desc);
@@ -776,7 +897,7 @@ void QCCounters::BeginPass(uint32_t passID)
   for(uint32_t i = start; i < end; i++)
   {
     const QCBuiltCounter &built = m_Built[m_EnabledCounters[i]];
-    if(built.gslId == 0xffffffffu)
+    if(!built.HasDevicePair())
       continue;
 
     ids.push_back(built.gslId);
@@ -785,8 +906,12 @@ void QCCounters::BeginPass(uint32_t passID)
 
   if(ids.empty())
   {
+    // This is the expected outcome while kQCVerifiedGslPairs is a sentinel only: the
+    // pass holds only counters whose device pair has not been verified on this
+    // generation, and selecting a guessed pair would report an unrelated hardware
+    // counter under the right name.
     RDCLOG("Qualcomm counters: pass %u has no selectable counters (device-side (id, group) pairs "
-           "unresolved)",
+           "unresolved - see kQCVerifiedGslPairs)",
            passID);
     return;
   }
@@ -815,7 +940,7 @@ void QCCounters::EndPass()
   for(uint32_t i = start; i < end; i++)
   {
     const QCBuiltCounter &built = m_Built[m_EnabledCounters[i]];
-    if(built.gslId == 0xffffffffu)
+    if(!built.HasDevicePair())
       continue;
 
     ids.push_back(built.gslId);
@@ -868,7 +993,7 @@ void QCCounters::EndSample()
     // counter is identified by the same (id, group) pair used for select; the
     // plugin additionally masks the result to 32 bits for id 0xd. Only a resolved
     // pair can be read - an unresolved one yields zero rather than a bad read.
-    if(read && built.gslId != 0xffffffffu && m_GslDevice >= 0)
+    if(read && built.HasDevicePair() && m_GslDevice >= 0)
     {
       uint64_t raw = 0;
       int res = read((uint32_t)m_GslDevice, built.gslId, built.gslGroup, &raw);

@@ -179,6 +179,7 @@ SOURCES += Code/qrenderdoc.cpp \
     Code/QCInterop.cpp \
     Code/SystemTrace.cpp \
     Code/SystemTraceCorrelation.cpp \
+    Code/TraceCapture.cpp \
     Code/pyrenderdoc/PythonContext.cpp \
     Code/pyrenderdoc/PythonInvokers.cpp \
     Code/Interface/QRDInterface.cpp \
@@ -288,6 +289,7 @@ HEADERS += Code/CaptureContext.h \
     Code/QCInterop.h \
     Code/SystemTrace.h \
     Code/SystemTraceCorrelation.h \
+    Code/TraceCapture.h \
     Code/pyrenderdoc/PythonContext.h \
     Code/pyrenderdoc/pyconversion.h \
     Code/pyrenderdoc/interface_check.h \

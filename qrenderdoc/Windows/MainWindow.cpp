@@ -528,6 +528,11 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   ui->action_Open_RGP_Profile->setEnabled(false);
   ui->action_Create_RGP_Profile->setEnabled(false);
   ui->action_Open_Snapdragon_Profile->setEnabled(false);
+
+  // action_System_Trace_Correlation is deliberately NOT disabled here. This viewer is fully usable
+  // before a capture is open: the user can import a trace and inspect its series, frame boundaries
+  // and import warnings straight away. Only the frame overlay needs a capture, and the window says
+  // so explicitly instead of the whole tool refusing to open.
   ui->action_Resolve_Symbols->setEnabled(false);
   ui->action_Resolve_Symbols->setText(tr("Resolve Symbols"));
 
@@ -2381,9 +2386,9 @@ void MainWindow::OnCaptureLoaded()
   // requires a locally loaded capture. There is no embedded section to detect, unlike RGP.
   ui->action_Open_Snapdragon_Profile->setEnabled(m_Ctx.IsCaptureLocal());
 
-  // The system trace correlation viewer is purely offline: it reads a user-exported trace file
-  // and overlays it onto the currently loaded capture, so it only needs a local capture too.
-  ui->action_System_Trace_Correlation->setEnabled(m_Ctx.IsCaptureLocal());
+  // Not enabled here: the system trace correlation viewer does not depend on a capture. It stays
+  // enabled at all times so the user can open it and import / inspect a trace before loading
+  // anything; the overlay itself simply reports that no capture is open.
   m_Ctx.Replay().AsyncInvoke([this](IReplayController *) {
     bool hasAMDGRPPorfile =
         (m_Ctx.Replay().GetCaptureAccess()->FindSectionByType(SectionType::AMDRGPProfile) >= 0);
@@ -2445,7 +2450,10 @@ void MainWindow::OnCaptureClosed()
   ui->action_Open_RGP_Profile->setEnabled(false);
   ui->action_Create_RGP_Profile->setEnabled(false);
   ui->action_Open_Snapdragon_Profile->setEnabled(false);
-  ui->action_System_Trace_Correlation->setEnabled(false);
+
+  // action_System_Trace_Correlation is intentionally left enabled after a capture is closed: the
+  // viewer keeps whatever trace the user has imported and only the correlation overlay depends on a
+  // loaded capture. Disabling it here would make the window unreachable until a capture is reopened.
 
   contextChooser->setEnabled(true);
 
@@ -2984,9 +2992,10 @@ void MainWindow::on_action_Open_Snapdragon_Profile_triggered()
 
 void MainWindow::on_action_System_Trace_Correlation_triggered()
 {
-  if(!m_Ctx.IsCaptureLoaded())
-    return;
-
+  // Deliberately not gated on m_Ctx.IsCaptureLoaded(): the window must open with no capture so the
+  // user can import a trace and inspect its series, frame boundaries and import warnings on its
+  // own. The overlay simply reports that no capture is open until one is loaded.
+  //
   // This viewer is deliberately decoupled from any vendor SDK. It imports a documented JSON-lines
   // trace export and correlates it with the current frame's actions by frame number, falling back
   // to absolute trace timestamps when no shared clock is declared. Nothing here touches the

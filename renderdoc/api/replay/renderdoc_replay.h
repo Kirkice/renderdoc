@@ -2419,6 +2419,52 @@ user can be prompted to close an existing program before a new one is launched.
 )");
   virtual ResultDetails StartRemoteServer(const rdcstr &URL) = 0;
 
+  DOCUMENT(R"(Execute a command on the given device and optionally retrieve its standard output.
+
+This is the generic escape hatch that protocol-specific tooling build on: profiling backends,
+file staging, and diagnostic probes all reduce to "run this command on the device". Command
+arguments are passed as a single string and are interpreted by the device's own shell, so callers
+are responsible for quoting.
+
+The command's standard error is discarded. Use :func:`PullFile` to retrieve output that does not
+fit comfortably in a captured stream, since the amount of stdout that can be buffered is bounded
+by the device transport rather than by this interface.
+
+:param str URL: The URL of the device in the form ``protocol://host``, with protocol as returned by
+  :func:`GetProtocolName` and host as returned by :func:`GetDevices`.
+:param str command: The command line to execute on the device.
+:param stdoutText: Optional pointer that receives the captured standard output on success. If
+  ``None`` the output is discarded.
+:type stdoutText: ``rdcstr *``
+:return: The status of the command, whether success or failure. A non-zero device exit code is
+  reported as a failure.
+:rtype: ResultDetails
+)");
+  virtual ResultDetails ExecCommand(const rdcstr &URL, const rdcstr &command,
+                                    rdcstr *stdoutText) = 0;
+
+  DOCUMENT(R"(Copy a file from the host onto the given device.
+
+:param str URL: The URL of the device in the form ``protocol://host``, with protocol as returned by
+  :func:`GetProtocolName` and host as returned by :func:`GetDevices`.
+:param str local: The path of the file on the host to transfer.
+:param str remote: The destination path on the device. The parent directory must already exist.
+:return: The status of the transfer, whether success or failure.
+:rtype: ResultDetails
+)");
+  virtual ResultDetails PushFile(const rdcstr &URL, const rdcstr &local, const rdcstr &remote) = 0;
+
+  DOCUMENT(R"(Copy a file from the given device onto the host.
+
+:param str URL: The URL of the device in the form ``protocol://host``, with protocol as returned by
+  :func:`GetProtocolName` and host as returned by :func:`GetDevices`.
+:param str remote: The path of the file on the device to transfer.
+:param str local: The destination path on the host. The parent directory must already exist.
+:return: The status of the transfer, whether success or failure.
+:rtype: ResultDetails
+)");
+  virtual ResultDetails PullFile(const rdcstr &URL, const rdcstr &remote, const rdcstr &local) = 0;
+
 protected:
   IDeviceProtocolController() = default;
   ~IDeviceProtocolController() = default;

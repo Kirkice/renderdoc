@@ -25,6 +25,7 @@
 #include "SystemTrace.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include <QFile>
 #include <QJsonArray>
@@ -363,6 +364,316 @@ SystemTrace ImportSystemTraceJsonLines(const QString &path)
 
   if(trace.timeUnit.isEmpty())
     trace.warnings << QObject::tr("Trace did not declare a time unit: assuming seconds");
+
+  trace.valid = true;
+  return trace;
+}
+
+namespace
+{
+// Chrome Trace timestamps are microseconds in the device clock.
+const double MicrosecondsToSeconds = 1.0e-6;
+
+struct ChromeEventStats
+{
+  int events = 0;
+  int counters = 0;
+  int unknownPhase = 0;
+  int missingTimestamp = 0;
+  int malformed = 0;
+  int framesFromArgs = 0;
+  int framesFromName = 0;
+};
+
+// Extracts an explicit frame index from an event. Returns -1 when the event does not describe a
+// frame boundary. Two forms are accepted, in order of authority:
+//   1. an integer in args under frameNumber / frame_number / frame
+//   2. a slice name of the exact form "Frame <n>"
+// `fromName` reports which form matched so the caller can record the weaker provenance.
+int64_t FrameIndexFromEvent(const QJsonObject &obj, bool &fromName)
+{
+  fromName = false;
+
+  const QJsonObject args = obj.value(QStringLiteral("args")).toObject();
+  const char *argKeys[] = {"frameNumber", "frame_number", "frame"};
+  for(const char *key : argKeys)
+  {
+    const QJsonValue val = args.value(QLatin1String(key));
+    if(val.isDouble())
+      return (int64_t)val.toDouble();
+  }
+
+  const QString name = obj.value(QStringLiteral("name")).toString();
+  if(name.startsWith(QStringLiteral("Frame "), Qt::CaseInsensitive))
+  {
+    bool ok = false;
+    const int64_t index = name.mid(6).trimmed().toLongLong(&ok);
+    if(ok)
+    {
+      fromName = true;
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+// Collects a counter event's values. Chrome counters carry a name per value in `args`, which keeps
+// distinct counters in one event separate rather than merged into one series.
+void AddCounterEvent(const QJsonObject &obj, QVector<TraceSeries> &series, ChromeEventStats &stats)
+{
+  const double timeSec = obj.value(QStringLiteral("ts")).toDouble() * MicrosecondsToSeconds;
+  const QString category = obj.value(QStringLiteral("cat")).toString();
+  const QJsonObject args = obj.value(QStringLiteral("args")).toObject();
+
+  if(args.isEmpty())
+  {
+    // A counter with no named values would need an invented name to be displayed, so it is
+    // counted rather than guessed at.
+    stats.malformed++;
+    return;
+  }
+
+  for(auto it = args.begin(); it != args.end(); ++it)
+  {
+    if(!it.value().isDouble())
+      continue;
+
+    const QString name = category.isEmpty() ? it.key() : category + QStringLiteral("/") + it.key();
+
+    int idx = -1;
+    for(int i = 0; i < series.size(); i++)
+    {
+      if(series[i].name == name)
+      {
+        idx = i;
+        break;
+      }
+    }
+
+    if(idx < 0)
+    {
+      TraceSeries s;
+      s.name = name;
+      // Chrome counters do not declare a unit. Leaving it empty is the truthful choice.
+      idx = series.size();
+      series.push_back(s);
+    }
+
+    TraceSample sample;
+    sample.timeSec = timeSec;
+    sample.value = it.value().toDouble();
+    series[idx].samples.push_back(sample);
+  }
+
+  stats.counters++;
+}
+
+void ConsumeChromeEvent(const QJsonObject &obj, QVector<TraceSeries> &series,
+                       QVector<TraceFrameBoundary> &frames, ChromeEventStats &stats)
+{
+  stats.events++;
+
+  const QString phase = obj.value(QStringLiteral("ph")).toString();
+
+  if(phase == QStringLiteral("C"))
+  {
+    AddCounterEvent(obj, series, stats);
+    return;
+  }
+
+  if(!obj.contains(QStringLiteral("ts")))
+  {
+    // Only frame detection needs a timestamp; counters and metadata do not.
+    if(!obj.contains(QStringLiteral("ph")))
+      stats.malformed++;
+    return;
+  }
+
+  bool fromName = false;
+  const int64_t frameIndex = FrameIndexFromEvent(obj, fromName);
+
+  if(frameIndex >= 0)
+  {
+    TraceFrameBoundary b;
+    b.frameNumber = (uint32_t)frameIndex;
+    b.timeSec = obj.value(QStringLiteral("ts")).toDouble() * MicrosecondsToSeconds;
+    frames.push_back(b);
+
+    if(fromName)
+      stats.framesFromName++;
+    else
+      stats.framesFromArgs++;
+  }
+  else if(phase != QStringLiteral("M"))
+  {
+    // Slices, instants, async events etc. carry no measurement we represent as a series.
+    stats.unknownPhase++;
+  }
+}
+}
+
+SystemTrace ImportChromeTraceEventFormat(const QString &path)
+{
+  SystemTrace trace;
+  trace.source = path;
+  trace.formatName = QStringLiteral("Chrome Trace Event Format (Perfetto traceconv json)");
+  // Timestamps are assumed to be microseconds of device time; there is no shared clock with the
+  // capture, so correlation has to derive an offset from frame boundaries.
+  trace.timeUnit = QStringLiteral("s");
+
+  QFile file(path);
+  if(!file.open(QIODevice::ReadOnly))
+  {
+    trace.warnings << QObject::tr("Could not open trace file: %1").arg(path);
+    return trace;
+  }
+
+  // A Chrome trace is one JSON document, but the events array can be far larger than is sensible
+  // to materialise at once. The file is therefore scanned for balanced top-level event objects and
+  // each one is parsed individually. This also means a single malformed event does not discard
+  // the whole trace.
+  const QByteArray contents = file.readAll();
+  if(contents.isEmpty())
+  {
+    trace.warnings << QObject::tr("Trace file is empty: %1").arg(path);
+    return trace;
+  }
+
+  ChromeEventStats stats;
+
+  // Locate the event stream: either the value of "traceEvents", or the file's top-level array.
+  int pos = 0;
+  bool sawKey = false;
+
+  {
+    const int keyIdx = contents.indexOf("\"traceEvents\"");
+    if(keyIdx >= 0)
+    {
+      pos = keyIdx + int(strlen("\"traceEvents\""));
+      sawKey = true;
+    }
+  }
+
+  // Advance to the opening bracket of the array.
+  while(pos < contents.size() && contents.at(pos) != '[')
+    pos++;
+
+  if(pos >= contents.size())
+  {
+    trace.warnings << QObject::tr(
+        "Trace does not contain a Chrome trace event array (expected a top-level array or a "
+        "'traceEvents' key): %1")
+                          .arg(path);
+    return trace;
+  }
+
+  pos++; // past '['
+
+  // `depth` counts brace nesting of the events themselves. Strings are tracked unconditionally
+  // because event payloads routinely contain '[' and ']' inside names and arguments, and treating
+  // those as structure would corrupt the depth count.
+  int depth = 0;
+  int objectStart = -1;
+  bool inString = false;
+  bool escaped = false;
+
+  for(; pos < contents.size(); pos++)
+  {
+    const char c = contents.at(pos);
+
+    if(inString)
+    {
+      if(escaped)
+        escaped = false;
+      else if(c == '\\')
+        escaped = true;
+      else if(c == '"')
+        inString = false;
+      continue;
+    }
+
+    if(c == '"')
+    {
+      inString = true;
+      continue;
+    }
+
+    if(c == '{')
+    {
+      if(depth == 0)
+        objectStart = pos;
+      depth++;
+      continue;
+    }
+
+    if(c == '}')
+    {
+      if(depth <= 0)
+        continue;
+
+      depth--;
+      if(depth == 0 && objectStart >= 0)
+      {
+        QJsonParseError err = {};
+        const QJsonDocument doc =
+            QJsonDocument::fromJson(contents.mid(objectStart, pos - objectStart + 1), &err);
+
+        if(err.error != QJsonParseError::NoError || !doc.isObject())
+          stats.malformed++;
+        else
+          ConsumeChromeEvent(doc.object(), trace.series, trace.frameBoundaries, stats);
+
+        objectStart = -1;
+      }
+      continue;
+    }
+
+    // The event array's closing bracket at brace depth 0 ends the stream.
+    if(c == ']' && depth == 0)
+      break;
+  }
+
+  if(!sawKey && stats.events == 0)
+    trace.warnings << QObject::tr(
+        "Trace has no recognisable top-level event array; the file may not be a Chrome trace "
+        "export");
+
+  for(TraceSeries &s : trace.series)
+    s.Sort();
+
+  std::sort(trace.frameBoundaries.begin(), trace.frameBoundaries.end(),
+            [](const TraceFrameBoundary &a, const TraceFrameBoundary &b) {
+              return a.timeSec < b.timeSec;
+            });
+
+  if(stats.counters == 0)
+    trace.warnings << QObject::tr(
+        "Trace contained no counter ('ph':'C') events: only frame boundaries can be correlated");
+
+  if(stats.framesFromName > 0)
+    trace.warnings << QObject::tr(
+        "%1 frame boundaries were identified from a 'Frame <n>' slice name rather than an "
+        "explicit frame index in 'args'")
+                          .arg(stats.framesFromName);
+
+  if(stats.malformed > 0)
+    trace.warnings << QObject::tr("%1 events could not be parsed and were skipped")
+                          .arg(stats.malformed);
+
+  if(trace.series.isEmpty() && trace.frameBoundaries.isEmpty())
+  {
+    trace.warnings << QObject::tr(
+        "Trace contained no counter events and no frame boundaries, so nothing can be correlated "
+        "(%1 events examined)")
+                          .arg(stats.events);
+    return trace;
+  }
+
+  if(trace.frameBoundaries.isEmpty())
+    trace.warnings << QObject::tr(
+        "Trace contained no frame boundaries: correlation to the capture will be limited to "
+        "absolute time");
 
   trace.valid = true;
   return trace;

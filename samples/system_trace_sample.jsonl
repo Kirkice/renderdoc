@@ -1,0 +1,12 @@
+# 示例：System Trace Correlation 可导入的 JSON-lines 轨迹（每行一个 JSON 对象）
+# 说明：
+#   - 时间戳单位为秒（s），与 RenderDoc 的帧内相对时间同域。
+#   - frame 记录用于把轨迹帧边界与 RenderDoc 帧号对齐。
+#   - series/sample 记录提供叠加曲线；采样时刻 = 帧内相对时间 + offset。
+# 该文件为手工构造的最小样例，不是真实 Perfetto 导出，仅用于验证 UI 与关联逻辑。
+{"type":"header","formatVersion":1,"timeUnit":"s","source":"hand-written sample","clockDomain":"shared"}
+{"type":"frame","frameNumber":1,"t":0.0}
+{"type":"frame","frameNumber":2,"t":0.016}
+{"type":"series","name":"GPU Busy","unit":"%","samples":[[0.000,41.2],[0.002,55.8],[0.004,72.1],[0.006,68.4],[0.008,50.9],[0.010,44.0],[0.012,39.6],[0.014,47.3],[0.016,58.8]]}
+{"type":"series","name":"CPU Load","unit":"%","samples":[[0.000,12.5],[0.003,18.9],[0.006,26.4],[0.009,22.1],[0.012,15.7],[0.015,13.2],[0.018,19.8]]}
+{"type":"series","name":"DDR Bandwidth","unit":"MB/s","samples":[[0.000,1120.0],[0.004,2860.0],[0.008,3010.0],[0.012,1740.0],[0.016,1210.0]]}

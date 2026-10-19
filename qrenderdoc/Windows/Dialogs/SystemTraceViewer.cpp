@@ -33,6 +33,8 @@
 #include <QAbstractItemView>
 #include <QBrush>
 #include <QColor>
+#include <QFile>
+#include <QFileInfo>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QHash>
@@ -44,9 +46,11 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPen>
+#include <QPlainTextEdit>
 #include <QPointer>
 #include <QPolygonF>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -54,6 +58,7 @@
 #include <QVBoxLayout>
 
 #include "Code/QRDUtils.h"
+#include "Code/TraceCapture.h"
 
 namespace
 {
@@ -87,6 +92,28 @@ QString ConfidenceName(ClockDomainConfidence c)
   }
 
   return QObject::tr("unknown");
+}
+
+// Decides which importer a file needs. Extension alone is not enough: a `traceconv json` export is
+// usually named `.json`, but a `.txt` systrace or a bare file can still be the same document. The
+// format is therefore identified by looking for the Chrome event array first, and only then
+// falling back to the JSON-lines interchange.
+bool LooksLikeChromeTrace(const QString &path)
+{
+  QFile file(path);
+  if(!file.open(QIODevice::ReadOnly))
+    return false;
+
+  // The event array is at the top level of the document, so a bounded prefix is enough to decide
+  // and keeps a multi-hundred-megabyte trace from being read twice.
+  const QByteArray prefix = file.read(64 * 1024);
+
+  if(prefix.contains("\"traceEvents\""))
+    return true;
+
+  const QByteArray trimmed = prefix.trimmed();
+  // A bare top-level array of events; JSON-lines interchange always starts with a '{'.
+  return trimmed.startsWith('[');
 }
 
 // Distinct, reasonably colour-blind friendly line colours for the overlay curves.
@@ -303,6 +330,15 @@ protected:
         }
       }
     }
+    else if(!m_Data.captureLoaded)
+    {
+      // No capture open: the curves are still meaningful on their own, but there is nothing to
+      // place them against, so say that instead of implying a failed clock alignment.
+      p.setPen(QColor(0xe0, 0xb0, 0x6c));
+      p.drawText(QRectF(m_PlotRect.left() + 6, m_PlotRect.top() + 16, m_PlotRect.width() - 12, 18),
+                 Qt::AlignLeft | Qt::AlignTop,
+                 QObject::tr("No capture loaded: trace shown on its own time base"));
+    }
     else
     {
       // Unaligned: the trace is shown from time zero, clearly labelled so the curves are never
@@ -376,8 +412,19 @@ SystemTraceViewer::SystemTraceViewer(ICaptureContext &ctx, QWidget *parent)
   QPushButton *reload = new QPushButton(tr("Reload"), this);
   QPushButton *close = new QPushButton(tr("Close"), this);
 
+  // Recording controls. The duration is chosen before starting because a device protocol
+  // serialises its commands onto one thread: a running `perfetto` cannot be interrupted, so the
+  // recording must be bounded up front rather than stopped on demand.
+  m_CaptureSeconds = new QSpinBox(this);
+  m_CaptureSeconds->setRange(1, 120);
+  m_CaptureSeconds->setValue(5);
+  m_CaptureSeconds->setSuffix(tr(" s"));
+
+  m_Capture = new QPushButton(tr("Capture Trace..."), this);
+
   connect(browse, &QPushButton::clicked, this, [this] { browseForTrace(); });
   connect(reload, &QPushButton::clicked, this, [this] { reloadTrace(); });
+  connect(m_Capture, &QPushButton::clicked, this, [this] { captureTrace(); });
   connect(close, &QPushButton::clicked, this, &QDialog::close);
 
   QHBoxLayout *fileRow = new QHBoxLayout();
@@ -385,6 +432,9 @@ SystemTraceViewer::SystemTraceViewer(ICaptureContext &ctx, QWidget *parent)
   fileRow->addWidget(m_TracePath, 1);
   fileRow->addWidget(browse);
   fileRow->addWidget(reload);
+  fileRow->addWidget(new QLabel(tr("Record:"), this));
+  fileRow->addWidget(m_CaptureSeconds);
+  fileRow->addWidget(m_Capture);
 
   m_Chart = new SystemTraceChart(this);
   m_Chart->OnSelect = [this](uint32_t eventId) { selectEvent(eventId); };
@@ -399,10 +449,17 @@ SystemTraceViewer::SystemTraceViewer(ICaptureContext &ctx, QWidget *parent)
 
   m_Warnings = new QListWidget(this);
 
+  // The capture log is kept as a tab rather than a transient popup: it holds every device command
+  // and every tool result in order, which is the only way a failed conversion is diagnosable.
+  m_CaptureLog = new QPlainTextEdit(this);
+  m_CaptureLog->setReadOnly(true);
+  m_CaptureLog->setPlaceholderText(tr("No capture has been recorded in this window yet."));
+
   QTabWidget *sideTabs = new QTabWidget(this);
   sideTabs->addTab(m_Series, tr("Series"));
   sideTabs->addTab(m_Frames, tr("Frames"));
   sideTabs->addTab(m_Warnings, tr("Warnings"));
+  sideTabs->addTab(m_CaptureLog, tr("Capture Log"));
   sideTabs->setMaximumWidth(300);
 
   QHBoxLayout *middle = new QHBoxLayout();
@@ -432,6 +489,7 @@ SystemTraceViewer::SystemTraceViewer(ICaptureContext &ctx, QWidget *parent)
 
   m_Ctx.AddCaptureViewer(this);
 
+  updateCaptureControls();
   updateStatusText();
   updateHighlight();
 }
@@ -443,6 +501,7 @@ SystemTraceViewer::~SystemTraceViewer()
 
 void SystemTraceViewer::OnCaptureLoaded()
 {
+  updateCaptureControls();
   rebuild();
 }
 
@@ -452,6 +511,8 @@ void SystemTraceViewer::OnCaptureClosed()
   m_FrameEventTimes.clear();
   m_FrameDuration = 0.0;
   m_CorrelatedFrame = 0;
+
+  updateCaptureControls();
 
   if(m_Chart)
     m_Chart->Clear();
@@ -495,7 +556,12 @@ void SystemTraceViewer::reloadTrace()
 
 void SystemTraceViewer::loadTraceFrom(const QString &path)
 {
-  m_Trace = ImportSystemTraceJsonLines(path);
+  // The capture path always produces a Chrome Trace Event Format document, while the documented
+  // interchange is JSON-lines. Both are accepted, and the file itself decides which importer runs:
+  // selecting on the extension alone would mis-route a `traceconv json` output named `.txt`.
+  m_Trace = LooksLikeChromeTrace(path) ? ImportChromeTraceEventFormat(path)
+                                       : ImportSystemTraceJsonLines(path);
+
   m_TracePath->setText(path);
   m_Loaded = true;
 
@@ -531,20 +597,147 @@ void SystemTraceViewer::loadTraceFrom(const QString &path)
   updateStatusText();
 }
 
+void SystemTraceViewer::captureTrace()
+{
+  if(m_Capturing)
+    return;
+
+  // The device is reached through the protocol of the host this session is connected to. When no
+  // protocol is active there is nothing this path can talk to, so the button is refused rather
+  // than starting a pipeline that would fail at the first command.
+  const RemoteHost remote = m_Ctx.Replay().CurrentRemote();
+  IDeviceProtocolController *protocol = remote.Protocol();
+
+  if(protocol == NULL)
+  {
+    RDDialog::warning(this, tr("Cannot capture a trace"),
+                      tr("No device protocol is connected. Connect to an Android device (or "
+                         "another protocol that supports file transfer) and try again."));
+    return;
+  }
+
+  TraceCaptureOptions opts;
+  opts.durationMs = m_CaptureSeconds->value() * 1000;
+
+  // The only place a `traceconv` binary may be found is the Snapdragon Profiler installation the
+  // user already pointed at in Settings; the driver falls back to PATH discovery when this is
+  // empty. Nothing is bundled or redistributed with RenderDoc.
+  const QString profilerPath =
+      QString::fromUtf8(m_Ctx.Config().ExternalTool_SnapdragonProfiler.c_str());
+  if(!profilerPath.isEmpty())
+    opts.snapdragonProfilerPath = QFileInfo(profilerPath).absolutePath();
+
+  // The hostname IS the device URL the caller selected this device by, so it is passed through
+  // unchanged: the driver must never re-derive the device identity.
+  const QString url = QString::fromUtf8(remote.Hostname().c_str());
+
+  m_Capturing = true;
+  updateCaptureControls();
+
+  m_Status->setText(tr("Recording up to %1 seconds of system trace on %2. The recording is "
+                       "bounded by that duration because a device command cannot be interrupted "
+                       "once it is running.")
+                        .arg(m_CaptureSeconds->value())
+                        .arg(url));
+
+  if(m_CaptureLog)
+  {
+    m_CaptureLog->clear();
+    m_CaptureLog->appendPlainText(tr("Starting capture on %1 (duration %2 ms)")
+                                      .arg(url)
+                                      .arg(opts.durationMs));
+  }
+
+  // The driver blocks on every device command, so it runs on a worker thread; TraceCaptureJob
+  // delivers the result back on this object's thread and guards against the dialog being closed
+  // while the pipeline is still running.
+  TraceCaptureJob::Start(this, protocol, url, opts, [this](const TraceCaptureResult &result) {
+    m_Capturing = false;
+    updateCaptureControls();
+
+    if(m_CaptureLog)
+    {
+      m_CaptureLog->clear();
+      for(const QString &line : result.log)
+        m_CaptureLog->appendPlainText(line);
+
+      if(!result.error.isEmpty())
+        m_CaptureLog->appendPlainText(tr("\nFAILED: %1").arg(result.error));
+
+      if(!result.localTracePath.isEmpty())
+        m_CaptureLog->appendPlainText(tr("\nPerfetto trace: %1").arg(result.localTracePath));
+      if(!result.localJsonPath.isEmpty())
+        m_CaptureLog->appendPlainText(tr("Importable JSON: %1").arg(result.localJsonPath));
+    }
+
+    if(!result.success)
+    {
+      updateStatusText();
+      RDDialog::warning(this, tr("Trace capture failed"),
+                        tr("The trace could not be recorded or converted.\n\n%1\n\nEvery command "
+                           "that ran is listed in the Capture Log tab.")
+                            .arg(result.error.isEmpty() ? tr("unknown error") : result.error));
+      return;
+    }
+
+    // The captured JSON is the same document the importer accepts, so it is loaded through the
+    // normal path: one code path for both captured and manually opened traces.
+    loadTraceFrom(result.localJsonPath);
+  });
+}
+
+void SystemTraceViewer::updateCaptureControls()
+{
+  if(m_Capture == NULL || m_CaptureSeconds == NULL)
+    return;
+
+  const bool haveProtocol = m_Ctx.Replay().CurrentRemote().Protocol() != NULL;
+
+  m_Capture->setEnabled(haveProtocol && !m_Capturing);
+  m_CaptureSeconds->setEnabled(!m_Capturing);
+
+  if(m_Capturing)
+  {
+    m_Capture->setText(tr("Recording..."));
+    m_Capture->setToolTip(
+        tr("A recording cannot be stopped early: the device protocol serialises commands, so the "
+           "run finishes at the duration chosen above."));
+  }
+  else
+  {
+    m_Capture->setText(tr("Capture Trace..."));
+    m_Capture->setToolTip(haveProtocol ? tr("Record a system trace directly from the connected "
+                                            "device with its own perfetto, then import it.")
+                                       : tr("Connect to a device that implements file transfer "
+                                            "commands to record a trace."));
+  }
+}
+
 void SystemTraceViewer::rebuild()
 {
-  if(!m_Ctx.IsCaptureLoaded() || !traceUsable())
-  {
-    // Nothing to correlate: keep whatever informational panels we have but clear the overlay.
-    m_FrameEventTimes.clear();
-    m_FrameDuration = 0.0;
-    m_CorrelatedFrame = 0;
-    m_Correlation = TraceCorrelation();
+  // Any cached correlation belongs to the capture it was computed for, so drop it unconditionally
+  // before deciding what can be drawn.
+  m_FrameEventTimes.clear();
+  m_FrameDuration = 0.0;
+  m_CorrelatedFrame = 0;
+  m_Correlation = TraceCorrelation();
 
+  if(!traceUsable())
+  {
     if(m_Chart)
       m_Chart->Clear();
 
     updateHighlight();
+    updateStatusText();
+    return;
+  }
+
+  // The imported series do not depend on RenderDoc: keep showing them (on their own time base)
+  // even with no capture open. Only the frame overlay and the per-event readout need a capture.
+  if(!m_Ctx.IsCaptureLoaded())
+  {
+    showTraceOnly();
+    updateStatusText();
     return;
   }
 
@@ -593,11 +786,19 @@ void SystemTraceViewer::updateHighlight()
   if(m_Chart == NULL)
     return;
 
-  if(!traceUsable() || !m_Ctx.IsCaptureLoaded())
+  if(!traceUsable())
   {
     m_Chart->Clear();
     m_Alignment->setText(QString());
     m_Selection->setText(QString());
+    return;
+  }
+
+  if(!m_Ctx.IsCaptureLoaded())
+  {
+    // The series stay visible; the frame overlay and the per-event readout cannot be produced
+    // without a capture, so they are cleared instead of showing stale data.
+    showTraceOnly();
     return;
   }
 
@@ -677,6 +878,31 @@ void SystemTraceViewer::updateHighlight()
   m_Selection->setText(selectionText);
 }
 
+void SystemTraceViewer::showTraceOnly()
+{
+  // Trace-only presentation: the series are drawn on their own time base and both correlation
+  // readouts are emptied, because neither has a meaning without a frame to align to.
+  if(m_Chart)
+  {
+    SystemTraceChartData chartData = {};
+    chartData.trace = &m_Trace;
+    chartData.aligned = false;
+    chartData.captureLoaded = false;
+
+    m_Chart->SetData(chartData);
+  }
+
+  if(m_Alignment)
+  {
+    m_Alignment->setText(
+        tr("Clock alignment: not applicable — no capture is loaded, so the trace is shown on its "
+           "own time base."));
+  }
+
+  if(m_Selection)
+    m_Selection->setText(QString());
+}
+
 void SystemTraceViewer::selectEvent(uint32_t eventId)
 {
   if(eventId == 0)
@@ -693,8 +919,26 @@ void SystemTraceViewer::updateStatusText()
 
   if(!m_Loaded)
   {
-    m_Status->setText(tr("No trace loaded. Use \"Open Trace...\" to import a system trace, then "
-                         "click a draw or dispatch marker to select it in RenderDoc."));
+    if(m_Capturing)
+    {
+      m_Status->setText(tr("Recording a system trace on the connected device..."));
+      return;
+    }
+
+    const bool haveProtocol = m_Ctx.Replay().CurrentRemote().Protocol() != NULL;
+
+    if(haveProtocol)
+    {
+      m_Status->setText(tr("No trace loaded. Use \"Capture Trace...\" to record one directly from "
+                           "the connected device, or \"Open Trace...\" to import one. Then click a "
+                           "draw or dispatch marker to select it in RenderDoc."));
+    }
+    else
+    {
+      m_Status->setText(tr("No trace loaded. Use \"Open Trace...\" to import one, then click a draw "
+                           "or dispatch marker to select it in RenderDoc. Recording a trace needs "
+                           "a connected device, which this session does not have."));
+    }
     return;
   }
 
@@ -703,6 +947,17 @@ void SystemTraceViewer::updateStatusText()
     m_Status->setText(tr("Could not import the trace: %1")
                           .arg(m_Trace.warnings.isEmpty() ? tr("unknown error")
                                                           : m_Trace.warnings.join(QLatin1Char(' '))));
+    return;
+  }
+
+  if(!m_Ctx.IsCaptureLoaded())
+  {
+    m_Status->setText(tr("Trace: %1  |  %2 series, %3 frame boundaries. No capture is loaded, so "
+                         "there is nothing to correlate against yet; open a capture and the frame "
+                         "overlay appears here.")
+                          .arg(m_Trace.source.isEmpty() ? tr("(unnamed)") : m_Trace.source)
+                          .arg(m_Trace.series.size())
+                          .arg(m_Trace.frameBoundaries.size()));
     return;
   }
 

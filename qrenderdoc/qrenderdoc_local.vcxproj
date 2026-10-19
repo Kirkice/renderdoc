@@ -603,6 +603,7 @@
     <ClCompile Include="Code\QCInterop.cpp" />
     <ClCompile Include="Code\SystemTrace.cpp" />
     <ClCompile Include="Code\SystemTraceCorrelation.cpp" />
+    <ClCompile Include="Code\TraceCapture.cpp" />
     <ClCompile Include="Code\ScintillaSyntax.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_RDStyle.cpp" />
     <ClCompile Include="$(IntDir)generated\moc_RDTweakedNativeStyle.cpp" />
@@ -1028,6 +1029,7 @@
     <ClInclude Include="Code\QCInterop.h" />
     <ClInclude Include="Code\SystemTrace.h" />
     <ClInclude Include="Code\SystemTraceCorrelation.h" />
+    <ClInclude Include="Code\TraceCapture.h" />
     <ClInclude Include="Code\CaptureContext.h" />
     <ClInclude Include="Code\AI\MCPTypes.h" />
     <ClInclude Include="Code\AI\MCPToolRegistry.h" />

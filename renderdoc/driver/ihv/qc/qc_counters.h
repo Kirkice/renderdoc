@@ -76,6 +76,10 @@ public:
 
 private:
 #if ENABLED(RDOC_ANDROID)
+  // The sentinel that marks "this counter's device (id, group) pair is unknown".
+  // Declared here so QCBuiltCounter and its consumers share one definition.
+  static const uint32_t kUnknownGslId = 0xffffffffu;
+
   struct GslApi
   {
     void *module;
@@ -129,11 +133,20 @@ private:
     // gsl_perfcounter_read actually address. A counter is identified on device by
     // that pair, NOT by our PERF_* name, so the mapping genuinely requires the
     // device's own libgsl.so catalog. That catalog is not part of the host SDP
-    // distribution, so on a counter whose pair is unknown this holds
-    // kUnknownGslId (0xffffffff) and passes containing only such counters issue
-    // no select at all rather than a guess.
-    uint32_t gslId = 0xffffffffu;
+    // distribution, so until a pair has been verified on a real device this holds
+    // kUnknownGslId and passes containing only such counters issue no select at all
+    // rather than a guess. See kQCVerifiedGslPairs in qc_counters.cpp.
+    //
+    // kUnknownGslId is a static const member of QCCounters; that is safe here because
+    // it is only ever compared and assigned by value, never address-taken, so it is
+    // never odr-used and needs no out-of-line definition.
+    uint32_t gslId = kUnknownGslId;
     uint32_t gslGroup = 0;
+
+    // Whether this counter can be addressed on the device at all. The three call
+    // sites that select, deselect and read all need exactly this question answered;
+    // keeping it beside the sentinel means they cannot drift apart.
+    bool HasDevicePair() const { return gslId != kUnknownGslId; }
   };
 
   // Deterministically map a PERF_* name into the Qualcomm ID range.

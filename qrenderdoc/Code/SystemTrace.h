@@ -144,3 +144,24 @@ struct SystemTrace
 // (section 8.9.3). This importer is a deliberately format-agnostic front end for that text -
 // it does not parse protobuf and does not link Perfetto.
 SystemTrace ImportSystemTraceJsonLines(const QString &path);
+
+// Parse a trace in the Chrome Trace Event Format, which is what `traceconv json` and Perfetto's
+// own JSON export actually emit: either a bare JSON array of events or an object with a
+// `traceEvents` array. This is the shape a real device trace arrives in, so it is the importer the
+// capture path uses.
+//
+// What is mapped, and what is deliberately not:
+//   * `ph:"C"` counter events become TraceSeries, one per (category, name) pair. Chrome counters
+//     carry no unit, so `TraceSeries::unit` stays empty rather than being invented.
+//   * Frame boundaries come only from events carrying an explicit frame index - an integer in
+//     `args` under `frameNumber` / `frame_number` / `frame`, or a slice name of the form
+//     `Frame <n>`. When the second form is used a warning records that the index came from the
+//     slice name, so the provenance stays visible.
+//   * Slice durations (`ph:"X"` with `dur`) are not turned into samples: they are spans, not
+//     measurements, and flattening them into a series would misrepresent the trace.
+//
+// Timestamps are microseconds in the device's own clock domain, so samples are converted to
+// seconds and `sharedClock` stays false; correlation must derive the offset from frame boundaries.
+// The function never throws and never asserts: on failure it returns an invalid SystemTrace whose
+// `warnings` explain why.
+SystemTrace ImportChromeTraceEventFormat(const QString &path);

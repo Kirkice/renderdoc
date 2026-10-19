@@ -1,0 +1,31 @@
+
+  common.vcxproj -> H:\tmp\renderdoc\x64\Release\\breakpad_common.lib
+  crash_generation_client.vcxproj -> H:\tmp\renderdoc\x64\Release\\crash_generation_client.lib
+  Read Git commit: 'f496fb7569ab4976b7a7fa6407b3283e80659df8'
+  exception_handler.vcxproj -> H:\tmp\renderdoc\x64\Release\\exception_handler.lib
+  crash_generation_server.vcxproj -> H:\tmp\renderdoc\x64\Release\\crash_generation_server.lib
+  renderdocshim.vcxproj -> H:\tmp\renderdoc\x64\Release\renderdocshim64.dll
+  Intel.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_Intel.lib
+  renderdoc_dxil.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_dxil.lib
+  renderdoc_version.vcxproj -> H:\tmp\renderdoc\x64\Release\version.lib
+  renderdocui_stub.vcxproj -> H:\tmp\renderdoc\x64\Release\renderdocui.exe
+  renderdoc_dxgi.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_dxgi.lib
+  QC.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_QC.lib
+  ARM.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_ARM.lib
+  renderdoc_spirv.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_spirv.lib
+  renderdoc_dxbc.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_dxbc.lib
+  AMD.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_AMD.lib
+  renderdoc_gl.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_gl.lib
+  renderdoc_vulkan.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_vulkan.lib
+  renderdoc_d3d12.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_d3d12.lib
+  NV.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_NV.lib
+  renderdoc_d3d11.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_d3d11.lib
+  Processing layer JSON file for RenderDoc 1.47
+  renderdoc.vcxproj -> H:\tmp\renderdoc\x64\Release\renderdoc.dll
+  pyrenderdoc_module.vcxproj -> H:\tmp\renderdoc\x64\Release\pymodules\renderdoc.pyd
+  Built against default bundled python
+  qrenderdoc_module.vcxproj -> H:\tmp\renderdoc\x64\Release\pymodules\qrenderdoc.pyd
+  Built against default bundled python
+  renderdoccmd.vcxproj -> H:\tmp\renderdoc\x64\Release\renderdoccmd.exe
+LINK : fatal error C1047: 对象或库文件“H:\tmp\renderdoc\x64\Release\obj\qrenderdoc\renderdoc_python.obj”是使用与其他对象(如“H:\tmp\renderdoc\x64\Release\obj\qrenderdoc\LexCPP.obj”)不同的编译器版本创建的；请使用相同的编译器重新生成所有对象和库 [H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj]
+LINK : fatal error LNK1257: 代码生成失败 [H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj]

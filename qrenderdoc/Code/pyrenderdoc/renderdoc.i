@@ -140,6 +140,19 @@ VA_IGNORE_REST_OF_FILE
 }
 %typemap(freearg) rdcarray<rdcstr> *supportedProtocols { }
 
+// special handling for IDeviceProtocolController::ExecCommand - the stdout output parameter becomes
+// a second return value so the captured text survives into Python
+%typemap(in, numinputs=0) rdcstr *stdoutText (rdcstr outText) { $1 = &outText; }
+%typemap(argout) rdcstr *stdoutText {
+  PyObject *retVal = $result;
+  $result = PyTuple_New(2);
+  if($result)
+  {
+    PyTuple_SetItem($result, 0, retVal);
+    PyTuple_SetItem($result, 1, PyUnicode_FromStringAndSize(outText$argnum.c_str(), outText$argnum.size()));
+  }
+}
+
 // same for RENDERDOC_CreateRemoteServerConnection
 %typemap(in, numinputs=0) IRemoteServer **rend (IRemoteServer *outRenderer) {
   outRenderer = NULL;

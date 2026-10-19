@@ -1264,6 +1264,115 @@ struct AndroidController : public IDeviceProtocolHandler
     return result;
   }
 
+  // Validates that the device is known and active. Returns false and sets the error on `result` if
+  // not. Must be called from the command thread, where `devices` is only mutated by the enumerator.
+  bool CheckDeviceActive(RDResult &result, const rdcstr &deviceID, const char *action)
+  {
+    auto it = devices.find(deviceID);
+    if(it == devices.end())
+    {
+      SET_ERROR_RESULT(result, ResultCode::InvalidParameter,
+                       "Android device %s is not a valid device ID, can't %s",
+                       Android::GetFriendlyName(deviceID).c_str(), action);
+      return false;
+    }
+
+    if(!it->second.active)
+    {
+      SET_ERROR_RESULT(result, ResultCode::InvalidParameter,
+                       "Android device %s is not active, can't %s",
+                       Android::GetFriendlyName(deviceID).c_str(), action);
+      return false;
+    }
+
+    return true;
+  }
+
+  ResultDetails ExecCommand(const rdcstr &URL, const rdcstr &command,
+                            rdcstr *stdoutText) override
+  {
+    RDResult result = ResultCode::Succeeded;
+
+    Invoke([this, &result, &URL, &command, stdoutText]() {
+      rdcstr deviceID = GetDeviceID(URL);
+
+      if(!CheckDeviceActive(result, deviceID, "execute command"))
+        return;
+
+      Process::ProcessResult res = Android::adbExecCommand(deviceID, "shell " + command);
+
+      // the output is the caller's evidence, so hand it back verbatim rather than trimming it
+      if(stdoutText)
+        *stdoutText = res.strStdout;
+
+      if(res.retCode != 0)
+      {
+        const rdcstr stderrText = res.strStderror.trimmed();
+
+        SET_ERROR_RESULT(result, ResultCode::InternalError,
+                         "Command '%s' failed on Android device %s with exit code %d%s%s",
+                         command.c_str(), Android::GetFriendlyName(deviceID).c_str(),
+                         res.retCode, stderrText.empty() ? "" : ": ", stderrText.c_str());
+      }
+    });
+
+    return result;
+  }
+
+  ResultDetails PushFile(const rdcstr &URL, const rdcstr &local, const rdcstr &remote) override
+  {
+    RDResult result = ResultCode::Succeeded;
+
+    Invoke([this, &result, &URL, &local, &remote]() {
+      rdcstr deviceID = GetDeviceID(URL);
+
+      if(!CheckDeviceActive(result, deviceID, "push file"))
+        return;
+
+      Process::ProcessResult res =
+          Android::adbExecCommand(deviceID, "push \"" + local + "\" \"" + remote + "\"");
+
+      if(res.retCode != 0)
+      {
+        const rdcstr stderrText = res.strStderror.trimmed();
+
+        SET_ERROR_RESULT(result, ResultCode::FileIOFailed,
+                         "Pushing '%s' to '%s' on Android device %s failed with exit code %d%s%s",
+                         local.c_str(), remote.c_str(), Android::GetFriendlyName(deviceID).c_str(),
+                         res.retCode, stderrText.empty() ? "" : ": ", stderrText.c_str());
+      }
+    });
+
+    return result;
+  }
+
+  ResultDetails PullFile(const rdcstr &URL, const rdcstr &remote, const rdcstr &local) override
+  {
+    RDResult result = ResultCode::Succeeded;
+
+    Invoke([this, &result, &URL, &remote, &local]() {
+      rdcstr deviceID = GetDeviceID(URL);
+
+      if(!CheckDeviceActive(result, deviceID, "pull file"))
+        return;
+
+      Process::ProcessResult res =
+          Android::adbExecCommand(deviceID, "pull \"" + remote + "\" \"" + local + "\"");
+
+      if(res.retCode != 0)
+      {
+        const rdcstr stderrText = res.strStderror.trimmed();
+
+        SET_ERROR_RESULT(result, ResultCode::FileIOFailed,
+                         "Pulling '%s' to '%s' from Android device %s failed with exit code %d%s%s",
+                         remote.c_str(), local.c_str(), Android::GetFriendlyName(deviceID).c_str(),
+                         res.retCode, stderrText.empty() ? "" : ": ", stderrText.c_str());
+      }
+    });
+
+    return result;
+  }
+
   rdcstr RemapHostname(const rdcstr &deviceID) override
   {
     // we always connect to localhost

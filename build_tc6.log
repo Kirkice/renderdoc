@@ -1,0 +1,466 @@
+
+  Read Git commit: 'f496fb7569ab4976b7a7fa6407b3283e80659df8'
+  common.vcxproj -> H:\tmp\renderdoc\x64\Release\\breakpad_common.lib
+  renderdoc_version.vcxproj -> H:\tmp\renderdoc\x64\Release\version.lib
+  crash_generation_server.vcxproj -> H:\tmp\renderdoc\x64\Release\\crash_generation_server.lib
+  renderdoc_dxgi.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_dxgi.lib
+  exception_handler.vcxproj -> H:\tmp\renderdoc\x64\Release\\exception_handler.lib
+  renderdocshim.vcxproj -> H:\tmp\renderdoc\x64\Release\renderdocshim64.dll
+  renderdoc_dxil.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_dxil.lib
+  renderdocui_stub.vcxproj -> H:\tmp\renderdoc\x64\Release\renderdocui.exe
+  crash_generation_client.vcxproj -> H:\tmp\renderdoc\x64\Release\\crash_generation_client.lib
+  Intel.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_Intel.lib
+  QC.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_QC.lib
+  ARM.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_ARM.lib
+  renderdoc_spirv.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_spirv.lib
+  renderdoc_dxbc.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_dxbc.lib
+  AMD.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_AMD.lib
+  renderdoc_gl.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_gl.lib
+  renderdoc_vulkan.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_vulkan.lib
+  renderdoc_d3d12.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_d3d12.lib
+  NV.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_NV.lib
+  renderdoc_d3d11.vcxproj -> H:\tmp\renderdoc\x64\Release\driver_d3d11.lib
+  Processing layer JSON file for RenderDoc 1.47
+  renderdoc.vcxproj -> H:\tmp\renderdoc\x64\Release\renderdoc.dll
+  pyrenderdoc_module.vcxproj -> H:\tmp\renderdoc\x64\Release\pymodules\renderdoc.pyd
+  Built against default bundled python
+  qrenderdoc_module.vcxproj -> H:\tmp\renderdoc\x64\Release\pymodules\qrenderdoc.pyd
+  Built against default bundled python
+  renderdoccmd.vcxproj -> H:\tmp\renderdoc\x64\Release\renderdoccmd.exe
+  MOC PerformanceCounterSelection.h
+  MOC ScintillaEditBase.h
+  MOC ScintillaQt.h
+  MOC ScintillaDocument.h
+  MOC ScintillaEdit.h
+  MOC ToolWindowManager.h
+  MOC ToolWindowManagerArea.h
+  MOC ToolWindowManagerSplitter.h
+  MOC ToolWindowManagerTabBar.h
+  MOC ToolWindowManagerWrapper.h
+  MOC MCPHttpServer.h
+  MOC InvestigationReportDialog.h
+  MOC MCPStatusDialog.h
+  MOC PythonContext.h
+  MOC QRDUtils.h
+  MOC RDStyle.h
+  MOC RDTweakedNativeStyle.h
+  MOC BufferFormatSpecifier.h
+  MOC ComputeDebugSelector.h
+  MOC FindReplace.h
+  MOC CustomPaintWidget.h
+  MOC RDDoubleSpinBox.h
+  MOC RDSplitter.h
+  MOC RDLabel.h
+  MOC RDMenu.h
+  MOC RDHeaderView.h
+  MOC RDToolButton.h
+  MOC RDLineEdit.h
+  MOC RDTextEdit.h
+  MOC RDListView.h
+  MOC RDListWidget.h
+  MOC RDTableView.h
+  MOC RDTableWidget.h
+  MOC RDTreeView.h
+  MOC RDToolTip.h
+  MOC RDTreeWidget.h
+  MOC PipelineFlowChart.h
+  MOC CollapseGroupBox.h
+  MOC AnnotationDisplay.h
+  MOC RangeHistogram.h
+  MOC ResourcePreview.h
+  MOC TextureGoto.h
+  MOC ThumbnailStrip.h
+  MOC ReplayOptionsSelector.h
+  MOC OrderedListEditor.h
+  MOC MarkerBreadcrumbs.h
+  MOC APIInspector.h
+  MOC ResourceInspector.h
+  MOC BufferViewer.h
+  MOC DebugMessageView.h
+  MOC LogView.h
+  MOC CommentView.h
+  MOC DescriptorViewer.h
+  MOC AboutDialog.h
+  MOC CrashDialog.h
+  MOC UpdateDialog.h
+  MOC AnalyticsConfirmDialog.h
+  MOC AnalyticsPromptDialog.h
+  MOC AxisMappingDialog.h
+  MOC CameraControlsDialog.h
+  MOC ProjectionGuessDialog.h
+  MOC CaptureDialog.h
+  MOC LiveCapture.h
+  MOC EnvironmentEditor.h
+  MOC RemoteManager.h
+  MOC ExtensionManager.h
+  MOC SettingsDialog.h
+  MOC SuggestRemoteDialog.h
+  MOC TextureSaveDialog.h
+  MOC TipsDialog.h
+  MOC ConfigEditor.h
+  MOC VirtualFileDialog.h
+  MOC EventBrowser.h
+  MOC MainWindow.h
+  MOC D3D11PipelineStateViewer.h
+  MOC D3D12PipelineStateViewer.h
+  MOC GLPipelineStateViewer.h
+  MOC PipelineStateViewer.h
+  MOC VulkanPipelineStateViewer.h
+  MOC PixelHistoryView.h
+  MOC ShaderViewer.h
+  MOC ShaderMessageViewer.h
+  MOC PythonShell.h
+  MOC TimelineBar.h
+  MOC PerformanceCounterViewer.h
+  MOC StatisticsViewer.h
+  MOC TextureViewer.h
+  Compiling SWIG interface
+  Language subdirectory: python
+  Search paths:
+     .\
+     H:\tmp\renderdoc\renderdoc\api\replay\
+     .\swig_lib\python\
+     H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\python\
+     .\swig_lib\
+     H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\
+  Preprocessing...
+  Starting language-specific parse...
+  Processing types...
+  C++ analysis...
+  Processing nested classes...
+  Generating wrappers...
+  Compiling SWIG interface
+  Language subdirectory: python
+  Search paths:
+     .\
+     H:\tmp\renderdoc\renderdoc\api\replay\
+     H:\tmp\renderdoc\qrenderdoc\.\
+     .\swig_lib\python\
+     H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\python\
+     .\swig_lib\
+     H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\
+  Preprocessing...
+  Starting language-specific parse...
+  Processing types...
+  C++ analysis...
+  Processing nested classes...
+  Generating wrappers...
+  UIC BufferFormatSpecifier.ui
+  UIC ComputeDebugSelector.ui
+  UIC FindReplace.ui
+  UIC ResourcePreview.ui
+  UIC ThumbnailStrip.ui
+  UIC ReplayOptionsSelector.ui
+  UIC APIInspector.ui
+  UIC ResourceInspector.ui
+  UIC BufferViewer.ui
+  UIC DebugMessageView.ui
+  UIC LogView.ui
+  UIC CommentView.ui
+  UIC DescriptorViewer.ui
+  UIC AboutDialog.ui
+  UIC CrashDialog.ui
+  UIC UpdateDialog.ui
+  UIC AnalyticsConfirmDialog.ui
+  UIC AnalyticsPromptDialog.ui
+  UIC AxisMappingDialog.ui
+  UIC CameraControlsDialog.ui
+  UIC ProjectionGuessDialog.ui
+  UIC CaptureDialog.ui
+  UIC LiveCapture.ui
+  UIC EnvironmentEditor.ui
+  UIC RemoteManager.ui
+  UIC ExtensionManager.ui
+  UIC SettingsDialog.ui
+  UIC SuggestRemoteDialog.ui
+  UIC TextureSaveDialog.ui
+  UIC TipsDialog.ui
+  UIC ConfigEditor.ui
+  UIC VirtualFileDialog.ui
+  UIC EventBrowser.ui
+  UIC MainWindow.ui
+  UIC D3D11PipelineStateViewer.ui
+  UIC D3D12PipelineStateViewer.ui
+  UIC GLPipelineStateViewer.ui
+  UIC PipelineStateViewer.ui
+  UIC VulkanPipelineStateViewer.ui
+  UIC PixelHistoryView.ui
+  UIC ShaderViewer.ui
+  UIC ShaderMessageViewer.ui
+  UIC PythonShell.ui
+  UIC PerformanceCounterViewer.ui
+  UIC StatisticsViewer.ui
+  UIC TextureViewer.ui
+  RCC resources.qrc
+  RCC qtconf.qrc
+  UIC PerformanceCounterSelection.ui
+  precompiled.cpp
+  LexCPP.cxx
+  LexDiff.cxx
+  LexErrorList.cxx
+  LexHTML.cxx
+  LexJSON.cxx
+  LexNull.cxx
+  LexPython.cxx
+  LexRust.cxx
+  Accessor.cxx
+  CharacterCategory.cxx
+  CharacterSet.cxx
+  LexerBase.cxx
+  LexerModule.cxx
+  LexerNoExceptions.cxx
+  LexerSimple.cxx
+  PropSetSimple.cxx
+  StyleContext.cxx
+  WordList.cxx
+  PlatQt.cpp
+  ScintillaEditBase.cpp
+  ScintillaQt.cpp
+  ScintillaDocument.cpp
+  ScintillaEdit.cpp
+  AutoComplete.cxx
+  CallTip.cxx
+  CaseConvert.cxx
+  CaseFolder.cxx
+  Catalogue.cxx
+  CellBuffer.cxx
+  CharClassify.cxx
+  ContractionState.cxx
+  Decoration.cxx
+  Document.cxx
+  EditModel.cxx
+  Editor.cxx
+  EditView.cxx
+  ExternalLexer.cxx
+  Indicator.cxx
+  KeyMap.cxx
+  LineMarker.cxx
+  MarginView.cxx
+  PerLine.cxx
+  PositionCache.cxx
+  RESearch.cxx
+  RunStyles.cxx
+  ScintillaBase.cxx
+  Selection.cxx
+  Style.cxx
+  UniConversion.cxx
+  ViewStyle.cxx
+  XPM.cxx
+  BufferFormatter.cpp
+  Analytics.cpp
+  Helpers.cpp
+  PersistentConfig.cpp
+  QRDInterface.cpp
+  RemoteHost.cpp
+  ShaderProcessingTool.cpp
+  qprocessinfo.cpp
+  PythonContext.cpp
+  QRDUtils.cpp
+  MiniQtHelper.cpp
+  Resources.cpp
+  RGPInterop.cpp
+  QCInterop.cpp
+  SystemTrace.cpp
+  SystemTraceCorrelation.cpp
+  TraceCapture.cpp
+  ScintillaSyntax.cpp
+  moc_RDStyle.cpp
+  moc_RDTweakedNativeStyle.cpp
+  moc_AboutDialog.cpp
+  moc_CrashDialog.cpp
+  moc_UpdateDialog.cpp
+  moc_AnalyticsConfirmDialog.cpp
+  moc_AnalyticsPromptDialog.cpp
+  moc_APIInspector.cpp
+  moc_AxisMappingDialog.cpp
+  moc_CameraControlsDialog.cpp
+  moc_ProjectionGuessDialog.cpp
+  moc_ResourceInspector.cpp
+  moc_BufferFormatSpecifier.cpp
+  moc_ComputeDebugSelector.cpp
+  Building without PySide2 - Qt will not be accessible in python scripting. See https://github.com/baldurk/renderdoc/wiki/PySide2
+  moc_FindReplace.cpp
+  moc_BufferViewer.cpp
+  moc_CaptureDialog.cpp
+  moc_CustomPaintWidget.cpp
+  moc_D3D11PipelineStateViewer.cpp
+  moc_D3D12PipelineStateViewer.cpp
+  moc_DebugMessageView.cpp
+  moc_LogView.cpp
+  moc_CommentView.cpp
+  moc_DescriptorViewer.cpp
+  moc_EventBrowser.cpp
+  moc_GLPipelineStateViewer.cpp
+  moc_LiveCapture.cpp
+  moc_EnvironmentEditor.cpp
+  moc_OrderedListEditor.cpp
+  moc_MarkerBreadcrumbs.cpp
+  moc_RemoteManager.cpp
+  moc_ExtensionManager.cpp
+  moc_PerformanceCounterSelection.cpp
+  moc_PerformanceCounterViewer.cpp
+  moc_PipelineStateViewer.cpp
+  moc_PythonContext.cpp
+  moc_QRDUtils.cpp
+  moc_PipelineFlowChart.cpp
+  moc_RangeHistogram.cpp
+  moc_AnnotationDisplay.cpp
+  moc_CollapseGroupBox.cpp
+  moc_RDDoubleSpinBox.cpp
+  moc_RDSplitter.cpp
+  moc_RDLabel.cpp
+  moc_RDMenu.cpp
+  moc_RDHeaderView.cpp
+  moc_RDToolButton.cpp
+  moc_RDLineEdit.cpp
+  moc_RDTextEdit.cpp
+  moc_MainWindow.cpp
+  moc_RDListView.cpp
+  moc_RDListWidget.cpp
+  moc_MCPHttpServer.cpp
+  moc_InvestigationReportDialog.cpp
+  moc_MCPStatusDialog.cpp
+  moc_RDTableView.cpp
+  moc_RDTableWidget.cpp
+  moc_RDTreeView.cpp
+  moc_RDToolTip.cpp
+  moc_RDTreeWidget.cpp
+  moc_ResourcePreview.cpp
+  moc_SettingsDialog.cpp
+  moc_ShaderViewer.cpp
+  moc_ShaderMessageViewer.cpp
+  moc_PythonShell.cpp
+  moc_PixelHistoryView.cpp
+  moc_StatisticsViewer.cpp
+  moc_TimelineBar.cpp
+  moc_SuggestRemoteDialog.cpp
+  moc_TextureGoto.cpp
+  moc_TextureSaveDialog.cpp
+  moc_TextureViewer.cpp
+  moc_TipsDialog.cpp
+  moc_ConfigEditor.cpp
+  moc_ThumbnailStrip.cpp
+  moc_ReplayOptionsSelector.cpp
+  moc_ToolWindowManager.cpp
+  moc_ToolWindowManagerArea.cpp
+  moc_ToolWindowManagerSplitter.cpp
+  moc_ToolWindowManagerTabBar.cpp
+  moc_ToolWindowManagerWrapper.cpp
+  moc_VirtualFileDialog.cpp
+  moc_VulkanPipelineStateViewer.cpp
+  qrc_resources.cpp
+  qrc_qtconf.cpp
+  BufferFormatSpecifier.cpp
+  CollapseGroupBox.cpp
+  ComputeDebugSelector.cpp
+  FindReplace.cpp
+  RDListWidget.cpp
+  RDTableView.cpp
+  RDTableWidget.cpp
+  RDTreeView.cpp
+  RDToolTip.cpp
+  RDTreeWidget.cpp
+  PipelineFlowChart.cpp
+  RangeHistogram.cpp
+  AnnotationDisplay.cpp
+  RDDoubleSpinBox.cpp
+  RDSplitter.cpp
+  RDLabel.cpp
+  RDMenu.cpp
+  RDHeaderView.cpp
+  RDToolButton.cpp
+  RDListView.cpp
+  ResourcePreview.cpp
+  TextureGoto.cpp
+  ThumbnailStrip.cpp
+  ReplayOptionsSelector.cpp
+  OrderedListEditor.cpp
+  MarkerBreadcrumbs.cpp
+  CaptureContext.cpp
+  RDStyle.cpp
+  StyleData.cpp
+  RDTweakedNativeStyle.cpp
+  CustomPaintWidget.cpp
+  APIInspector.cpp
+  ResourceInspector.cpp
+  BufferViewer.cpp
+  DebugMessageView.cpp
+  LogView.cpp
+  CommentView.cpp
+  DescriptorViewer.cpp
+  AboutDialog.cpp
+  CrashDialog.cpp
+  UpdateDialog.cpp
+  AnalyticsConfirmDialog.cpp
+  AnalyticsPromptDialog.cpp
+  AxisMappingDialog.cpp
+  CameraControlsDialog.cpp
+  ProjectionGuessDialog.cpp
+  MCPTypes.cpp
+  MCPToolRegistry.cpp
+  MCPQueryAdapter.cpp
+  MCPTools.cpp
+  MCPHttpServer.cpp
+  MCPTests.cpp
+  MCPCaptureMatch.cpp
+  MCPRegressionDiff.cpp
+  MCPAnalysisModel.cpp
+  MCPDiagnostics.cpp
+  MCPExternalTools.cpp
+  MCPSourceMapping.cpp
+  InvestigationReportDialog.cpp
+  MaliAnalysisDialog.cpp
+  MCPStatusDialog.cpp
+  SystemTraceViewer.cpp
+  CaptureDialog.cpp
+  LiveCapture.cpp
+  EnvironmentEditor.cpp
+  PerformanceCounterSelection.cpp
+  RemoteManager.cpp
+  ExtensionManager.cpp
+  SettingsDialog.cpp
+  SuggestRemoteDialog.cpp
+  TextureSaveDialog.cpp
+  TipsDialog.cpp
+  ConfigEditor.cpp
+  VirtualFileDialog.cpp
+  EventBrowser.cpp
+  RDLineEdit.cpp
+  RDTextEdit.cpp
+  MainWindow.cpp
+  ReplayManager.cpp
+  D3D11PipelineStateViewer.cpp
+  D3D12PipelineStateViewer.cpp
+  GLPipelineStateViewer.cpp
+  PipelineStateViewer.cpp
+  VulkanPipelineStateViewer.cpp
+  ShaderViewer.cpp
+  ShaderMessageViewer.cpp
+  PythonShell.cpp
+  PixelHistoryView.cpp
+  PerformanceCounterViewer.cpp
+  StatisticsViewer.cpp
+  TimelineBar.cpp
+  TextureViewer.cpp
+  qrenderdoc.cpp
+  PythonInvokers.cpp
+  moc_ScintillaDocument.cpp
+  moc_ScintillaEdit.cpp
+  moc_ScintillaEditBase.cpp
+  moc_ScintillaQt.cpp
+  renderdoc_python.cxx
+  qrenderdoc_python.cxx
+  FlowLayout.cpp
+  ToolWindowManager.cpp
+  ToolWindowManagerArea.cpp
+  ToolWindowManagerSplitter.cpp
+  ToolWindowManagerTabBar.cpp
+  ToolWindowManagerWrapper.cpp
+    正在创建库 H:\tmp\renderdoc\x64\Release\\qrenderdoc.lib 和对象 H:\tmp\renderdoc\x64\Release\\qrenderdoc.exp
+  正在生成代码
+  Previous IPDB not found, fall back to full compilation.
+  All 82747 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  已完成代码的生成
+  qrenderdoc_local.vcxproj -> H:\tmp\renderdoc\x64\Release\qrenderdoc.exe
+  Built against default bundled python
+  Bundled Mali Offline Compiler from E:\Application\Arm Performance Studio 2024.6\mali_offline_compiler into H:\tmp\renderdoc\x64\Release\\mali_offline_compiler
