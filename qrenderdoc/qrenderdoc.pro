@@ -273,6 +273,16 @@ SOURCES += Code/qrenderdoc.cpp \
     Code/AI/MCPAnalysisModel.cpp \
     Code/AI/MCPDiagnostics.cpp \
     Code/AI/MCPExternalTools.cpp \
+    Code/AI/MCPSessionTools.cpp \
+    Code/AI/MCPSessionTests.cpp \
+    Code/AI/MCPShaderTools.cpp \
+    Code/AI/MCPShaderTests.cpp \
+    Code/AI/MCPComparisonTools.cpp \
+    Code/AI/MCPComparisonTests.cpp \
+    Code/AI/MCPCompatibilityTools.cpp \
+    Code/AI/MCPCompatibilityTests.cpp \
+    Code/AI/MCPResourceTools.cpp \
+    Code/AI/MCPResourceTests.cpp \
     Code/AI/MCPSourceMapping.cpp \
     Windows/Dialogs/InvestigationReportDialog.cpp \
     Windows/Dialogs/MaliAnalysisDialog.cpp \
@@ -382,6 +392,12 @@ HEADERS += Code/CaptureContext.h \
     Code/AI/MCPAnalysisModel.h \
     Code/AI/MCPDiagnostics.h \
     Code/AI/MCPExternalTools.h \
+    Code/AI/MCPSessionTools.h \
+    Code/AI/MCPShaderTools.h \
+    Code/AI/MCPComparisonTools.h \
+    Code/AI/MCPCompatibilityTools.h \
+    Code/AI/MCPResourceTools.h \
+    Code/AI/MCPResourceContractFixture.inl \
     Code/AI/MCPSourceMapping.h \
     Code/AI/MCPHttpServer.h \
     Windows/Dialogs/InvestigationReportDialog.h \

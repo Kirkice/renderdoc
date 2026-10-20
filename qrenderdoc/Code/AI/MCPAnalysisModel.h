@@ -767,15 +767,45 @@ struct EventBrowserContextRow
 // the query. An empty markerFilter and zero event-id bounds mean "no constraint".
 struct EventBrowserFilterOptions
 {
+  QString filter;                        // name substring; applied after advanced filtering
   QString markerFilter;                  // case-insensitive substring on the action name
   bool excludeMarkers = false;           // drop marker groups
   bool onlyDrawCalls = false;            // keep only real draw/dispatch/clear effects
   bool excludeDebugMarkers = false;      // drop debug/annotation marker groups
   bool excludeEmptyOperations = false;   // drop zero-index/zero-instance effects
   bool sortByDuration = false;           // order rows by GPU duration, hottest first
-  uint32_t eventIdMin = 0;               // 0 == no lower bound
-  uint32_t eventIdMax = 0;               // 0 == no upper bound
+  uint32_t eventIdMin = 0;
+  uint32_t eventIdMax = 0;
+  bool hasEventIdMin = false;           // legacy nonzero values also constrain the query
+  bool hasEventIdMax = false;
 };
+
+// Boundary parsing is shared by tool handlers; omission remains distinct from explicit zero.
+struct ToolResult;
+ToolResult ParseEventBrowserFilters(const QJsonObject &args, EventBrowserFilterOptions &out);
+
+struct ActionTimingOptions
+{
+  QVector<uint32_t> eventIds;             // empty means all; duplicates are removed in source order
+  uint32_t eventId = 0;                  // legacy single-event intersection
+  QString markerFilter;
+  QStringList excludeMarkers;           // ancestor marker name substrings, not a boolean
+  bool onlyDrawCalls = false;
+  int limit = 200;                       // extension implementation clamps 0 to 1, max 2000
+  int top = 50;                          // legacy slowest list cap
+  bool legacyCounters = false;           // parsed old-only calls retain all measured counter rows
+};
+ToolResult ParseActionTimingOptions(const QJsonObject &args, ActionTimingOptions &out);
+ToolResult SelectActionTimings(const rdcarray<ActionDescription> &roots, const SDFile &sdfile,
+                              const QHash<quint32, double> &timings,
+                              const ActionTimingOptions &options);
+
+// A filtered tree is owned here, so adapters never reinterpret JSON or marker semantics.
+// nameFirst mirrors getDrawCalls; false mirrors buildEventBrowserContext.
+rdcarray<ActionDescription> FilterActionTree(const rdcarray<ActionDescription> &roots,
+                                           const SDFile &sdfile,
+                                           const EventBrowserFilterOptions &options,
+                                           bool nameFirst = false);
 
 // Counters gathered during the filter walk.
 struct EventBrowserFilterStats
@@ -917,14 +947,6 @@ QVector<BookmarkTaggedItem> MergeBookmarkSidecar(const rdcarray<EventBookmark> &
 // capture from loading.
 BookmarkFile ParseBookmarkFile(const QByteArray &json);
 QByteArray SerializeBookmarkFile(const BookmarkFile &file);
-
-// Merge an existing sidecar with an incoming set of records. A record whose id
-// matches an existing one replaces it field-by-field (only non-empty fields
-// overwrite); a record with an unknown id is appended. Used by the write tool so
-// one update never clobbers the other bookmarks in the file. Records with an
-// empty id are rejected by the caller before reaching here.
-BookmarkFile UpsertBookmarkRecords(const BookmarkFile &existing,
-                                   const QVector<BookmarkTaggedItem> &incoming);
 
 // True if the record carries at least one extended field, i.e. it is more than
 // a plain capture bookmark and therefore needs the sidecar to survive.

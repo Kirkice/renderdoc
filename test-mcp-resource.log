@@ -1,0 +1,202 @@
+Filters: [mcp][resource]
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+QRenderDoc is a Catch v2.13.7 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Every extension catalog entry and original native capability remains registered
+-------------------------------------------------------------------------------
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(113)
+...............................................................................
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_buildEventBrowserContext
+  filter
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_generatePerformanceReport
+  format
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_generatePerformanceReport
+  outputPath
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getDrawCalls
+  filter
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getDrawCalls
+  markerFilter
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getDrawCalls
+  excludeMarkers
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getDrawCalls
+  onlyDrawCalls
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getDrawCalls
+  eventIdMin
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getDrawCalls
+  eventIdMax
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getActionTimings
+  eventIds
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getActionTimings
+  markerFilter
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getActionTimings
+  excludeMarkers
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getActionTimings
+  onlyDrawCalls
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getActionTimings
+  limit
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getResources
+  limit
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getResources
+  offset
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getPipelineState
+  eventId
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getTextureInfo
+  textureId
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getTextureData
+  textureId
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getTextureData
+  eventId
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getTextureData
+  channelExtract
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_getBufferContents
+  eventId
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPResourceTests.cpp(131): FAILED:
+  CHECK( properties.contains(parameter) )
+with expansion:
+  false
+with messages:
+  renderdoc_traceResourceUsage
+  maxEvents
+
+===============================================================================
+test cases:   4 |   3 passed |  1 failed
+assertions: 499 | 476 passed | 23 failed
+
+Checking python binding consistency.
+Python bindings are consistent.

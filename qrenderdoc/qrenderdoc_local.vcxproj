@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Development|Win32">
@@ -775,6 +775,16 @@
     <ClCompile Include="Code\AI\MCPAnalysisModel.cpp" />
     <ClCompile Include="Code\AI\MCPDiagnostics.cpp" />
     <ClCompile Include="Code\AI\MCPExternalTools.cpp" />
+    <ClCompile Include="Code\AI\MCPSessionTools.cpp" />
+    <ClCompile Include="Code\AI\MCPSessionTests.cpp" />
+    <ClCompile Include="Code\AI\MCPShaderTools.cpp" />
+    <ClCompile Include="Code\AI\MCPShaderTests.cpp" />
+    <ClCompile Include="Code\AI\MCPComparisonTools.cpp" />
+    <ClCompile Include="Code\AI\MCPComparisonTests.cpp" />
+    <ClCompile Include="Code\AI\MCPCompatibilityTools.cpp" />
+    <ClCompile Include="Code\AI\MCPCompatibilityTests.cpp" />
+    <ClCompile Include="Code\AI\MCPResourceTools.cpp" />
+    <ClCompile Include="Code\AI\MCPResourceTests.cpp" />
     <ClCompile Include="Code\AI\MCPSourceMapping.cpp" />
     <ClCompile Include="Windows\Dialogs\InvestigationReportDialog.cpp" />
     <ClCompile Include="Windows\Dialogs\MaliAnalysisDialog.cpp" />
@@ -1040,6 +1050,12 @@
     <ClInclude Include="Code\AI\MCPAnalysisModel.h" />
     <ClInclude Include="Code\AI\MCPDiagnostics.h" />
     <ClInclude Include="Code\AI\MCPExternalTools.h" />
+    <ClInclude Include="Code\AI\MCPSessionTools.h" />
+    <ClInclude Include="Code\AI\MCPShaderTools.h" />
+    <ClInclude Include="Code\AI\MCPComparisonTools.h" />
+    <ClInclude Include="Code\AI\MCPCompatibilityTools.h" />
+    <ClInclude Include="Code\AI\MCPResourceTools.h" />
+    <ClInclude Include="Code\AI\MCPResourceContractFixture.inl" />
     <ClInclude Include="Code\AI\MCPSourceMapping.h" />
     <ClInclude Include="Windows\Dialogs\MaliAnalysisDialog.h" />
     <ClInclude Include="Windows\Dialogs\SystemTraceViewer.h" />

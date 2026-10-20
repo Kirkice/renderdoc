@@ -23,6 +23,9 @@
  ******************************************************************************/
 
 #include "MCPTools.h"
+#include "MCPResourceTools.h"
+#include "MCPCompatibilityTools.h"
+#include "MCPComparisonTools.h"
 #include "MCPDiagnostics.h"
 #include "MCPExternalTools.h"
 #include "MCPSourceMapping.h"
@@ -50,6 +53,15 @@
 
 namespace MCP
 {
+
+QJsonObject ResourceRef(ResourceId id)
+{
+  uint64_t value = 0;
+  memcpy(&value, &id, sizeof(value));
+  return QJsonObject{{QStringLiteral("id"), double(value)},
+                     {QStringLiteral("name"), ResourceIdToString(id)},
+                     {QStringLiteral("exactId"), QString::number(qulonglong(value))}};
+}
 
 namespace
 {
@@ -141,14 +153,6 @@ ResourceId ArgResourceId(const QJsonObject &args, const char *key)
   if(v == 0)
     return ResourceId();
   return ResIdFromU64(uint64_t(v));
-}
-
-QJsonObject ResourceRef(ResourceId id)
-{
-  QJsonObject o;
-  o[QStringLiteral("id")] = double(ResIdValue(id));
-  o[QStringLiteral("name")] = ResourceIdToString(id);
-  return o;
 }
 
 QJsonValue JsonNum(double d) { return QJsonValue(d); }
@@ -1110,7 +1114,13 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
     QJsonObject props;
     AddSchemaProperty(props, "resourceId", "string",
                       "The resource id to trace through the frame.");
+    QJsonObject resourceId = props.value(QStringLiteral("resourceId")).toObject();
+    resourceId[QStringLiteral("type")] = QJsonArray{QStringLiteral("string"), QStringLiteral("integer")};
+    props[QStringLiteral("resourceId")] = resourceId;
     AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+    AddSchemaProperty(props, "maxEvents", "integer", "Maximum returned events per category (maximum 500); omission preserves the full native result. Scan coverage is unchanged.");
+    props[QStringLiteral("maxEvents")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
+        {QStringLiteral("minimum"), 1}, {QStringLiteral("maximum"), 500}};
 
     registry.Add(
         ToolDefinition{QStringLiteral("renderdoc_traceResourceUsage"),
@@ -1123,11 +1133,13 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                        ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
                        MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
-          const ResourceId id = ArgResourceId(args, "resourceId");
-          if(ResIdValue(id) == 0)
-            return FailWithCapture(ErrorCode::InvalidToolInput,
-                                   "resourceId is required and must be a valid resource id.");
-          return adapter.TraceResourceUsage(id, call, ArgFields(args));
+          ResourceId id;
+          ToolResult parsed = ParseResourceSelector(args, id, true);
+          if(!parsed.ok) return parsed;
+          int64_t maxEvents = 0;
+          if(!ReadResourceInteger(args, "maxEvents", 1, 500, maxEvents))
+            return FailWithCapture(ErrorCode::InvalidParams, "Invalid maxEvents");
+          return adapter.TraceResourceUsage(id, call, ArgFields(args), int(maxEvents));
         });
   }
 
@@ -1200,18 +1212,23 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
     AddSchemaProperty(props, "limit", "number",
                       "Maximum number of candidates to return (default 100).");
     AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
+    AddSchemaProperty(props, "baselinePath", "string", "Baseline capture path (requires candidatePath).");
+    AddSchemaProperty(props, "candidatePath", "string", "Candidate capture path (requires baselinePath).");
 
     registry.Add(
         ToolDefinition{QStringLiteral("renderdoc_findResourceLeaks"),
                        QStringLiteral("Find Suspected Resource Leaks"),
-                       QStringLiteral("Heuristically rank resources that look leaked: never bound, "
-                                      "or bound only once, during the captured frame yet still "
-                                      "resident. This is a low-confidence signal, not a verdict. "
-                                      "Requires replay."),
+                       QStringLiteral("Heuristically rank resources in the loaded capture, or compare "
+                                      "baselinePath/candidatePath using independent read-only replay. "
+                                      "Cross-capture names are low-confidence candidates, never leak proof. "
+                                      "Without paths, the legacy branch requires a loaded capture/replay."),
                        ToolEffects::ReadOnly,
-                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       ToolRequirements::None,
                        MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          if(args.contains(QStringLiteral("baselinePath")) ||
+             args.contains(QStringLiteral("candidatePath")))
+            return CompareCapturePaths(adapter, args, call, ComparisonKind::ResourceLeaks);
           return adapter.FindResourceLeaks((int)ArgU32(args, "limit", 100), call, ArgFields(args));
         });
   }
@@ -1280,6 +1297,11 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
     AddSchemaProperty(props, "limit", "number",
                       "Maximum number of hottest passes and hottest events to return. Default 20, "
                       "hard maximum 200.");
+    AddSchemaProperty(props, "format", "string", "Report format: json (default) or markdown.");
+    props[QStringLiteral("format")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("string")},
+        {QStringLiteral("enum"), QJsonArray{QStringLiteral("json"), QStringLiteral("markdown")}}};
+    AddSchemaProperty(props, "outputPath", "string", "Optional atomic no-overwrite document destination; parent must exist.");
+    AddSchemaProperty(props, "confirm", "boolean", "Confirm the report tool's possible file side effect.");
     AddSchemaProperty(props, "includePipeline", "boolean",
                       "Attach shader and resource evidence read from the pipeline state of each "
                       "hottest event. Default true.");
@@ -1297,15 +1319,21 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                                       "traced back to a concrete event id. When EventGPUDuration is "
                                       "unavailable the ranking is returned with confidence "
                                       "\"toVerify\" and a stated limitation rather than being "
-                                      "presented as fact. Requires replay."),
-                       ToolEffects::ReadOnly,
+                                      "presented as fact. Returns JSON/Markdown content in-band and optionally "
+                                      "writes outputPath atomically without overwriting. Requires replay."),
+                       ToolEffects::SideEffect,
                        ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
                        MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
-          return adapter.GeneratePerformanceReport((int)ArgU32(args, "limit", 20),
+          if(args.contains(QStringLiteral("confirm")) && !ArgBool(args, "confirm", false))
+            return ToolResult::Failure(Error(ErrorCode::SideEffectNotConfirmed, "confirm=false refuses report generation"));
+          const QString format = ArgStr(args, "format", QStringLiteral("json"));
+          if(format != QStringLiteral("json") && format != QStringLiteral("markdown"))
+            return ToolResult::Failure(Error(ErrorCode::InvalidParams, "format must be json or markdown"));
+          return CompatibilityDocument(adapter.GeneratePerformanceReport((int)ArgU32(args, "limit", 20),
                                                    ArgBool(args, "includePipeline", true),
                                                    ArgBool(args, "includeMesh", true), call,
-                                                   ArgFields(args));
+                                                   ArgFields(args), format), args, call);
         });
   }
 
@@ -1385,6 +1413,7 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
   // ---------------------------------------------------------------------------
   {
     QJsonObject props;
+    AddSchemaProperty(props, "filter", "string", "Case-insensitive name substring after advanced tree filtering.");
     AddSchemaProperty(props, "markerFilter", "string",
                       "Case-insensitive substring matched against action names. Once a marker "
                       "matches, all of its descendants qualify.");
@@ -1398,8 +1427,14 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
     AddSchemaProperty(props, "sortByDuration", "boolean",
                       "Order matching events by GPU duration, hottest first. Has no effect when "
                       "EventGPUDuration is unavailable. Default false.");
-    AddSchemaProperty(props, "eventIdMin", "number", "Lower bound on event id, inclusive. 0 = none.");
-    AddSchemaProperty(props, "eventIdMax", "number", "Upper bound on event id, inclusive. 0 = none.");
+    for(const char *key : {"eventIdMin", "eventIdMax"})
+    {
+      AddSchemaProperty(props, key, "integer", "Inclusive event-id bound; omission means no bound, including an explicit zero constrains the range.");
+      QJsonObject property = props.value(QString::fromLatin1(key)).toObject();
+      property[QStringLiteral("minimum")] = 0;
+      property[QStringLiteral("maximum")] = double(UINT32_MAX);
+      props[QString::fromLatin1(key)] = property;
+    }
     AddSchemaProperty(props, "limit", "number",
                       "Maximum number of events to return. Default 500, hard maximum 2000.");
     AddSchemaProperty(props, "fields", "array", "Optional list of top-level keys to return.");
@@ -1418,14 +1453,8 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                        MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
           EventBrowserFilterOptions options;
-          options.markerFilter = ArgStr(args, "markerFilter");
-          options.excludeMarkers = ArgBool(args, "excludeMarkers", false);
-          options.onlyDrawCalls = ArgBool(args, "onlyDrawCalls", false);
-          options.excludeDebugMarkers = ArgBool(args, "excludeDebugMarkers", false);
-          options.excludeEmptyOperations = ArgBool(args, "excludeEmptyOperations", false);
-          options.sortByDuration = ArgBool(args, "sortByDuration", false);
-          options.eventIdMin = ArgU32(args, "eventIdMin", 0);
-          options.eventIdMax = ArgU32(args, "eventIdMax", 0);
+          const ToolResult parsed = ParseEventBrowserFilters(args, options);
+          if(!parsed.ok) return parsed;
           return adapter.BuildEventBrowserContext(options, (int)ArgU32(args, "limit", 500), call,
                                                   ArgFields(args));
         });
@@ -1448,6 +1477,8 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
 
           QJsonObject out;
           out[QStringLiteral("capture")] = QueryAdapter::SnapshotToJson(adapter.Snapshot());
+          // Application/target ownership is separate from the MCP HTTP session.
+          out[QStringLiteral("applicationSession")] = adapter.ApplicationSessionState();
           if(snap.ok)
             out[QStringLiteral("api")] = snap.structured;
           if(frame.ok)
@@ -1461,144 +1492,6 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
         });
   }
 
-  {
-    QJsonObject props;
-
-    registry.Add(
-        ToolDefinition{QStringLiteral("renderdoc_listBookmarks"), QStringLiteral("List Bookmarks"),
-                       QStringLiteral("List every bookmark stored in the current capture."),
-                       ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
-        [&adapter](const QJsonObject &, CallContext &) -> ToolResult { return adapter.Bookmarks(); });
-  }
-
-  // ---- P1-8 investigation bookmarks ----------------------------------------
-
-  // The extended bookmark tools keep the portable note in the capture's own
-  // bookmark section while the tags/conclusion/analysis/screenshot live in a
-  // sidecar next to the capture. Read is a plain snapshot; the two writes are the
-  // only mutating tools in the module and therefore require an explicit
-  // `confirm: true` from the caller (the registry itself does not gate side
-  // effects, so the confirmation is enforced here, on the tool).
-  {
-    QJsonObject props;
-    AddSchemaProperty(props, "maxCount", "integer",
-                      "Maximum number of bookmark records to return (default 200, max 2000).");
-    AddSchemaProperty(props, "fields", "array", "Optional list of keys per bookmark to return.");
-
-    registry.Add(
-        ToolDefinition{QStringLiteral("renderdoc_bookmarksExtended"),
-                       QStringLiteral("List Investigation Bookmarks"),
-                       QStringLiteral("List the capture's bookmarks with their extended "
-                                      "investigation fields (id, title, conclusion, analysis, "
-                                      "screenshot) merged in from the sidecar document next to "
-                                      "the capture. Falls back to plain bookmarks when no "
-                                      "sidecar exists."),
-                       ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
-        [&adapter](const QJsonObject &args, CallContext &) -> ToolResult {
-          const int maxCount = (int)ArgU64(args, "maxCount", 0);
-          const QStringList fields = ArgFields(args);
-          ToolResult r = adapter.BookmarksExtended(maxCount, fields);
-          return WithCapture(adapter, r);
-        });
-  }
-
-  {
-    QJsonObject props;
-    AddSchemaProperty(props, "confirm", "boolean",
-                      "Must be true. The tool writes a bookmark sidecar next to the capture and "
-                      "updates the capture's bookmark list.");
-    AddSchemaProperty(props, "id", "string",
-                      "Stable bookmark id. Omit to derive one from the event id; supplying an "
-                      "existing id updates that record in place.");
-    AddSchemaProperty(props, "eventId", "integer", "Event the bookmark is recorded against.");
-    AddSchemaProperty(props, "title", "string", "Short bookmark title.");
-    AddSchemaProperty(props, "note", "string",
-                      "The portable note mirrored into the capture's native bookmark section.");
-    AddSchemaProperty(props, "conclusion", "string", "Investigation conclusion.");
-    AddSchemaProperty(props, "analysis", "string", "Free-form AI analysis prose.");
-    AddSchemaProperty(props, "screenshotPath", "string", "Path to an associated screenshot.");
-    AddSchemaProperty(props, "confidence", "string",
-                      "One of confirmed, inferred, toVerify, low (default confirmed).");
-
-    registry.Add(
-        ToolDefinition{QStringLiteral("renderdoc_updateBookmark"),
-                       QStringLiteral("Update Investigation Bookmark"),
-                       QStringLiteral("Create or update an investigation bookmark. Only the "
-                                      "fields supplied are changed; the note is mirrored into the "
-                                      "capture's bookmark list so the Event Browser shows it. "
-                                      "Requires confirm=true."),
-                       ToolEffects::SideEffect, ToolRequirements::LoadedCapture, MakeSchema(props)},
-        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
-          if(!ArgBool(args, "confirm", false))
-          {
-            QJsonObject data;
-            data[QStringLiteral("tool")] = QStringLiteral("renderdoc_updateBookmark");
-            return ToolResult::Failure(
-                Error(ErrorCode::SideEffectNotConfirmed,
-                      QStringLiteral("This tool writes a bookmark sidecar next to the capture. "
-                                     "Re-issue the call with confirm=true to proceed."),
-                      data));
-          }
-
-          BookmarkTaggedItem item;
-          item.id = ArgStr(args, "id");
-          const uint32_t eventId = ArgU32(args, "eventId", 0);
-          if(eventId != 0)
-            item.eventId = QString::number(eventId);
-          item.title = ArgStr(args, "title");
-          item.note = ArgStr(args, "note");
-          item.conclusion = ArgStr(args, "conclusion");
-          item.analysis = ArgStr(args, "analysis");
-          item.screenshotPath = ArgStr(args, "screenshotPath");
-
-          const QString conf = ArgStr(args, "confidence");
-          if(conf.compare(QStringLiteral("inferred"), Qt::CaseInsensitive) == 0)
-            item.confidence = Confidence::Inferred;
-          else if(conf.compare(QStringLiteral("toVerify"), Qt::CaseInsensitive) == 0)
-            item.confidence = Confidence::ToVerify;
-          else if(conf.compare(QStringLiteral("low"), Qt::CaseInsensitive) == 0)
-            item.confidence = Confidence::Low;
-          else
-            item.confidence = Confidence::Confirmed;
-
-          ToolResult r = adapter.UpdateBookmark(item, eventId, call);
-          return WithCapture(adapter, r);
-        });
-  }
-
-  {
-    QJsonObject props;
-    AddSchemaProperty(props, "confirm", "boolean",
-                      "Must be true. The tool rewrites the bookmark sidecar next to the capture "
-                      "and removes the capture's bookmark.");
-    AddSchemaProperty(props, "id", "string", "Stable bookmark id to remove.");
-    AddSchemaProperty(props, "eventId", "integer",
-                      "Event id to remove, used when no id is supplied.");
-
-    registry.Add(
-        ToolDefinition{QStringLiteral("renderdoc_removeBookmark"),
-                       QStringLiteral("Remove Investigation Bookmark"),
-                       QStringLiteral("Remove an investigation bookmark by id or event id and drop "
-                                      "the matching capture bookmark. Requires confirm=true."),
-                       ToolEffects::SideEffect, ToolRequirements::LoadedCapture, MakeSchema(props)},
-        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
-          if(!ArgBool(args, "confirm", false))
-          {
-            QJsonObject data;
-            data[QStringLiteral("tool")] = QStringLiteral("renderdoc_removeBookmark");
-            return ToolResult::Failure(
-                Error(ErrorCode::SideEffectNotConfirmed,
-                      QStringLiteral("This tool rewrites the bookmark sidecar next to the capture. "
-                                     "Re-issue the call with confirm=true to proceed."),
-                      data));
-          }
-
-          ToolResult r =
-              adapter.RemoveBookmark(ArgStr(args, "id"), ArgU32(args, "eventId", 0), call);
-          return WithCapture(adapter, r);
-        });
-  }
-
   // ---------------------------------------------------------------------------
   // Actions / events
   // ---------------------------------------------------------------------------
@@ -1607,7 +1500,14 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
     QJsonObject props;
     AddSchemaProperty(props, "eventId", "integer",
                       "Optional top-level event id to restrict the result to one subtree.");
-    AddSchemaProperty(props, "maxCount", "integer", "Maximum number of siblings to return.");
+    AddSchemaProperty(props, "maxCount", "integer", "Maximum number of post-filter siblings to return.");
+    AddSchemaProperty(props, "filter", "string", "Case-insensitive action-name substring, applied before advanced filtering.");
+    AddSchemaProperty(props, "markerFilter", "string", "Case-insensitive subtree name scope.");
+    AddSchemaProperty(props, "excludeMarkers", "boolean", "Drop marker/group nodes and promote matching children.");
+    AddSchemaProperty(props, "onlyDrawCalls", "boolean", "Keep draw, dispatch, mesh-dispatch and clear operations.");
+    for(const char *key : {"eventIdMin", "eventIdMax"})
+      props[QString::fromLatin1(key)] = QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
+          {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), double(UINT32_MAX)}};
     AddSchemaProperty(props, "fields", "array", "Optional list of keys per action to return.");
 
     registry.Add(
@@ -1617,8 +1517,11 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                                       "counts. Use eventId to drill into a single subtree."),
                        ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &) -> ToolResult {
+          EventBrowserFilterOptions options;
+          const ToolResult parsed = ParseEventBrowserFilters(args, options);
+          if(!parsed.ok) return parsed;
           return adapter.RootActions(ArgU32(args, "eventId"), ClampList(int(ArgU64(args, "maxCount"))),
-                                     ArgFields(args));
+                                     ArgFields(args), options);
         });
   }
 
@@ -1715,7 +1618,13 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
     QJsonObject props;
     AddSchemaProperty(props, "type", "string",
                       "Optional resource category filter, e.g. Texture, Buffer, Shader.");
-    AddSchemaProperty(props, "maxCount", "integer", "Maximum number of resources to return.");
+    AddSchemaProperty(props, "maxCount", "integer", "Legacy budget: 0 means 256, positive values capped at 4096; cannot conflict with limit.");
+    AddSchemaProperty(props, "limit", "integer", "Page size (default and maximum 500).");
+    AddSchemaProperty(props, "offset", "integer", "Offset in the filtered resource inventory (default 0).");
+    props[QStringLiteral("limit")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
+        {QStringLiteral("minimum"), 1}, {QStringLiteral("maximum"), 500}};
+    props[QStringLiteral("offset")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
+        {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), INT32_MAX}};
     AddSchemaProperty(props, "fields", "array", "Optional list of keys per resource to return.");
 
     registry.Add(
@@ -1724,9 +1633,8 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                                       "category. Each entry carries the resource id, name, type and "
                                       "size where known."),
                        ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
-        [&adapter](const QJsonObject &args, CallContext &) -> ToolResult {
-          return adapter.Resources(ArgStr(args, "type"), ClampList(int(ArgU64(args, "maxCount"))),
-                                   ArgFields(args));
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.ResourceTool(QStringLiteral("renderdoc_getResources"), args, call);
         });
   }
 
@@ -1768,58 +1676,81 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
 
   {
     QJsonObject props;
-    AddSchemaProperty(props, "resourceId", "integer", "The texture resource id.");
-    props[QStringLiteral("required")] = QJsonArray{QStringLiteral("resourceId")};
+    AddSchemaProperty(props, "resourceId", "integer", "Legacy texture resource id.");
+    QJsonObject resourceId = props.value(QStringLiteral("resourceId")).toObject();
+    resourceId[QStringLiteral("type")] = QJsonArray{QStringLiteral("string"), QStringLiteral("integer")};
+    props[QStringLiteral("resourceId")] = resourceId;
+    AddSchemaProperty(props, "textureId", "string", "Optional exact texture id; omission lists textures. Conflicting aliases are rejected.");
 
     registry.Add(
         ToolDefinition{QStringLiteral("renderdoc_getTextureInfo"), QStringLiteral("Get Texture Info"),
-                       QStringLiteral("Return the full description of a single texture, including "
-                                      "its dimensions, format, mip levels and usage."),
+                       QStringLiteral("Return texture descriptions, optionally selecting one exact texture id, "
+                                      "including dimensions, format, mip levels and usage."),
                        ToolEffects::ReadOnly, ToolRequirements::LoadedCapture, MakeSchema(props)},
-        [&adapter](const QJsonObject &args, CallContext &) -> ToolResult {
-          const ResourceId id = ArgResourceId(args, "resourceId");
-          if(id == ResourceId())
-            return FailWithCapture(ErrorCode::InvalidToolInput, "resourceId is required");
-          return adapter.Texture(id);
+        [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.ResourceTool(QStringLiteral("renderdoc_getTextureInfo"), args, call);
         });
   }
 
   {
     QJsonObject props;
-    AddSchemaProperty(props, "resourceId", "integer", "The texture resource id.");
+    AddSchemaProperty(props, "resourceId", "integer", "Legacy texture resource id; resourceId or textureId is required.");
+    AddSchemaProperty(props, "textureId", "string", "Exact texture id, alias of resourceId; conflicts are rejected.");
+    AddSchemaProperty(props, "eventId", "integer", "Event to read; explicit 0 means end of frame. Raw omission preserves current event.");
+    AddSchemaProperty(props, "channelExtract", "integer", "PNG only: -1=RGB with source alpha discarded, 0=R, 1=G, 2=B, 3=A grayscale. Raw extraction is Unsupported.");
+    AddSchemaProperty(props, "outputFormat", "string", "raw (default, unchanged native bytes) or png (opaque display preview, whole PNG; no ASTC/volume conversion).");
+    QJsonObject resourceId = props.value(QStringLiteral("resourceId")).toObject();
+    resourceId[QStringLiteral("type")] = QJsonArray{QStringLiteral("string"), QStringLiteral("integer")};
+    props[QStringLiteral("resourceId")] = resourceId;
+    QJsonObject encoding = props.value(QStringLiteral("outputFormat")).toObject();
+    encoding[QStringLiteral("enum")] = QJsonArray{QStringLiteral("raw"), QStringLiteral("png")};
+    props[QStringLiteral("outputFormat")] = encoding;
+    QJsonObject channel = props.value(QStringLiteral("channelExtract")).toObject();
+    channel[QStringLiteral("minimum")] = -1;
+    channel[QStringLiteral("maximum")] = 3;
+    props[QStringLiteral("channelExtract")] = channel;
     AddSchemaProperty(props, "mip", "integer", "Mip level to read (default 0).");
     AddSchemaProperty(props, "slice", "integer", "Array slice to read (default 0).");
     AddSchemaProperty(props, "sample", "integer", "Sample index to read (default 0).");
     AddSchemaProperty(props, "maxBytes", "integer",
                       "Upper bound on returned bytes (default and maximum 65536).");
-    props[QStringLiteral("required")] = QJsonArray{QStringLiteral("resourceId")};
-
     registry.Add(
         ToolDefinition{QStringLiteral("renderdoc_getTextureData"), QStringLiteral("Get Texture Data"),
-                       QStringLiteral("Read back one subresource of a texture and return it "
-                                      "base64-encoded together with the format needed to interpret "
-                                      "it. The payload is bounded by maxBytes."),
+                       QStringLiteral("Read one texture subresource as original raw bytes (default, "
+                                      "bounded by maxBytes), or explicitly request a whole opaque PNG "
+                                      "display preview with optional grayscale channel extraction."),
                        ToolEffects::ReadOnly,
                        ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
                        MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
-          if(!SensitiveAllowed(call))
-            return SensitiveDenied("renderdoc_getTextureData");
-
-          const ResourceId id = ArgResourceId(args, "resourceId");
-          if(id == ResourceId())
-            return FailWithCapture(ErrorCode::InvalidToolInput, "resourceId is required");
-
-          Subresource sub;
-          sub.mip = ArgU32(args, "mip");
-          sub.slice = ArgU32(args, "slice");
-          sub.sample = ArgU32(args, "sample");
-
-          const uint64_t maxBytes = qMin(ArgU64(args, "maxBytes", int64_t(kMaxBufferBytes)),
-                                         int64_t(kMaxBufferBytes));
-
+          return adapter.WithCaptureUI(call, [&](ICaptureContext &ctx) -> ToolResult {
+          if(!ctx.Config().MCP_AllowSensitiveData) return SensitiveDenied("renderdoc_getTextureData");
+          TextureReadRequest request;
+          ToolResult parsed = ParseTextureReadRequest(args, request);
+          if(!parsed.ok) return parsed;
+          const ResourceId id = request.id;
+          const Subresource sub = request.sub;
+          const uint64_t maxBytes = request.maxBytes;
+          const uint32_t current = adapter.Snapshot().currentEvent;
           return adapter.DispatchBlock("renderdoc_getTextureData", call,
-                                       [id, sub, maxBytes](IReplayController &replay) -> ToolResult {
+                                       [id, sub, maxBytes, request, current, &call](IReplayController &replay) -> ToolResult {
+                                          uint32_t event = current;
+                                          if(request.selectEvent)
+                                          {
+                                            ToolResult selected = SelectResourceEvent(replay.GetRootActions(), request.eventId, true,
+                                                [&](uint32_t eid) { replay.SetFrameEvent(eid, false); }, event);
+                                            if(!selected.ok) return selected;
+                                          }
+                                          if(request.png)
+                                          {
+                                            ToolResult png = ReadTexturePNG(replay, request, call);
+                                            if(png.ok)
+                                            {
+                                              png.structured[QStringLiteral("eventId")] = double(event);
+                                              return ToolResult::Success(png.structured);
+                                            }
+                                            return png;
+                                          }
                                          const TextureDescription *tex = NULL;
                                          for(const TextureDescription &t : replay.GetTextures())
                                          {
@@ -1837,6 +1768,7 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                                                      QObject::tr("Texture not found in capture")));
                                          }
 
+                                         // Preserve native raw subresource semantics (including volume slices and sample resolve).
                                          const bytebuf data = replay.GetTextureData(id, sub);
                                          if(data.empty())
                                          {
@@ -1852,6 +1784,9 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
 
                                          QJsonObject out;
                                          out[QStringLiteral("resourceId")] = ResourceRef(id);
+                                         out[QStringLiteral("outputFormat")] = QStringLiteral("raw");
+                                         out[QStringLiteral("eventId")] = double(event);
+                                         out[QStringLiteral("channelExtract")] = -1;
                                          out[QStringLiteral("mip")] = double(sub.mip);
                                          out[QStringLiteral("slice")] = double(sub.slice);
                                          out[QStringLiteral("sample")] = double(sub.sample);
@@ -1865,13 +1800,14 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                                          out[QStringLiteral("base64")] = QString::fromLatin1(b64);
                                          return ToolResult::Success(out, QString());
                                        });
-        });
-  }
+         });
+       });
+ }
 
-  {
-    QJsonObject props;
-    AddSchemaProperty(props, "nameFilter", "string", "Optional case-insensitive substring filter.");
-    AddSchemaProperty(props, "maxCount", "integer", "Maximum number of buffers to return.");
+ {
+   QJsonObject props;
+   AddSchemaProperty(props, "nameFilter", "string", "Optional case-insensitive substring filter.");
+   AddSchemaProperty(props, "maxCount", "integer", "Maximum number of buffers to return.");
     AddSchemaProperty(props, "fields", "array", "Optional list of keys per buffer to return.");
 
     registry.Add(
@@ -1909,7 +1845,11 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
     AddSchemaProperty(props, "resourceId", "integer", "The buffer resource id.");
     AddSchemaProperty(props, "offset", "integer", "Byte offset to start reading from (default 0).");
     AddSchemaProperty(props, "len", "integer",
-                      "Number of bytes to read (default 4096, capped at 65536).");
+                       "Number of bytes to read (default 4096, capped at 65536).");
+    AddSchemaProperty(props, "eventId", "integer", "Positive event selects replay before reading; 0/omission preserves current event (native bridge behavior).");
+    QJsonObject resourceId = props.value(QStringLiteral("resourceId")).toObject();
+    resourceId[QStringLiteral("type")] = QJsonArray{QStringLiteral("string"), QStringLiteral("integer")};
+    props[QStringLiteral("resourceId")] = resourceId;
     props[QStringLiteral("required")] = QJsonArray{QStringLiteral("resourceId")};
 
     registry.Add(
@@ -1921,20 +1861,26 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                        ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
                        MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
-          if(!SensitiveAllowed(call))
-            return SensitiveDenied("renderdoc_getBufferContents");
-
-          const ResourceId id = ArgResourceId(args, "resourceId");
-          if(id == ResourceId())
-            return FailWithCapture(ErrorCode::InvalidToolInput, "resourceId is required");
-
-          const uint64_t offset = uint64_t(ArgU64(args, "offset", 0));
-          const uint64_t len =
-              qMin(uint64_t(ArgU64(args, "len", int64_t(4096))), kMaxBufferBytes);
-
+          return adapter.WithCaptureUI(call, [&](ICaptureContext &ctx) -> ToolResult {
+          if(!ctx.Config().MCP_AllowSensitiveData) return SensitiveDenied("renderdoc_getBufferContents");
+          ResourceId id;
+          if(!ParseResourceToolId(args.value(QStringLiteral("resourceId")), id))
+            return FailWithCapture(ErrorCode::InvalidParams, "Invalid resourceId");
+          int64_t offsetArg = 0, lenArg = 4096, eventArg = 0;
+          if(!ReadResourceInteger(args, "offset", 0, 9007199254740991LL, offsetArg) ||
+             !ReadResourceInteger(args, "len", 1, 65536, lenArg) ||
+             !ReadResourceInteger(args, "eventId", 0, UINT32_MAX, eventArg))
+            return FailWithCapture(ErrorCode::InvalidParams, "Invalid buffer offset/length/event");
+          const uint64_t offset = uint64_t(offsetArg), len = uint64_t(lenArg);
+          const uint32_t current = adapter.Snapshot().currentEvent;
           return adapter.DispatchBlock(
               "renderdoc_getBufferContents", call,
-              [id, offset, len](IReplayController &replay) -> ToolResult {
+              [id, offset, len, eventArg, current](IReplayController &replay) -> ToolResult {
+                uint32_t event = 0;
+                ToolResult selected = SelectResourceEvent(replay.GetRootActions(), uint32_t(eventArg), false,
+                    [&](uint32_t eid) { replay.SetFrameEvent(eid, false); }, event);
+                if(!selected.ok) return selected;
+                if(!event) event = current;
                 const bytebuf data = replay.GetBufferData(id, offset, len);
                 if(data.empty())
                 {
@@ -1949,11 +1895,13 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
 
                 QJsonObject out;
                 out[QStringLiteral("resourceId")] = ResourceRef(id);
+                out[QStringLiteral("eventId")] = double(event);
                 out[QStringLiteral("offset")] = double(offset);
                 out[QStringLiteral("len")] = double(data.size());
                 out[QStringLiteral("base64")] = QString::fromLatin1(b64);
                 return ToolResult::Success(out, QString());
               });
+          });
         });
   }
 
@@ -1968,6 +1916,17 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
     AddSchemaProperty(props, "top", "integer",
                       "Maximum number of slowest events to return (default 50).");
 
+    props[QStringLiteral("eventIds")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("array")},
+        {QStringLiteral("items"), QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
+          {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), double(UINT32_MAX)}}}};
+    AddSchemaProperty(props, "markerFilter", "string", "Case-insensitive ancestor marker scope.");
+    props[QStringLiteral("excludeMarkers")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("array")},
+        {QStringLiteral("items"), QJsonObject{{QStringLiteral("type"), QStringLiteral("string")}}}};
+    AddSchemaProperty(props, "onlyDrawCalls", "boolean", "Keep timed leaf draw/dispatch/mesh-dispatch/clear operations.");
+    props[QStringLiteral("limit")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
+        {QStringLiteral("minimum"), 0}, {QStringLiteral("maximum"), double(UINT32_MAX)},
+        {QStringLiteral("description"), QStringLiteral("Default 200; implementation clamps to 1..2000 (including 0 -> 1).")}};
+
     registry.Add(
         ToolDefinition{QStringLiteral("renderdoc_getActionTimings"),
                        QStringLiteral("Get Action Timings"),
@@ -1979,86 +1938,10 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                        ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
                        MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
-          const uint32_t filterEid = ArgU32(args, "eventId");
-          const int top = qBound(1, int(ArgU64(args, "top", 50)), kMaxListHard);
-
-          return adapter.DispatchBlock(
-              "renderdoc_getActionTimings", call,
-              [filterEid, top](IReplayController &replay) -> ToolResult {
-                // Only fetch the counter if the capture actually exposes it.
-                bool supportsDuration = false;
-                for(GPUCounter c : replay.EnumerateCounters())
-                {
-                  if(c == GPUCounter::EventGPUDuration)
-                  {
-                    supportsDuration = true;
-                    break;
-                  }
-                }
-
-                if(!supportsDuration)
-                {
-                  QJsonObject out;
-                  out[QStringLiteral("supported")] = false;
-                  out[QStringLiteral("timings")] = QJsonArray();
-                  out[QStringLiteral("slowest")] = QJsonArray();
-                  return ToolResult::Success(out, QString());
-                }
-
-                const rdcarray<GPUCounter> counters = {GPUCounter::EventGPUDuration};
-                const rdcarray<CounterResult> results = replay.FetchCounters(counters);
-
-                QJsonArray timings;
-                QVector<QJsonObject> slowest;
-
-                // The counter is reported in seconds by the replay layer.
-                const double kSecondsToMicro = 1000000.0;
-
-                for(const CounterResult &r : results)
-                {
-                  // Negative values mark events the counter backend could not
-                  // measure; reporting them as 0 would be misleading.
-                  if(r.value.d < 0.0)
-                    continue;
-
-                  if(filterEid != 0 && r.eventId != filterEid)
-                    continue;
-
-                  const double micro = r.value.d * kSecondsToMicro;
-
-                  QJsonObject t;
-                  t[QStringLiteral("eventId")] = double(r.eventId);
-                  t[QStringLiteral("durationMicro")] = micro;
-                  timings.push_back(t);
-
-                  QJsonObject s;
-                  s[QStringLiteral("eventId")] = double(r.eventId);
-                  s[QStringLiteral("durationMicro")] = micro;
-                  slowest.push_back(s);
-                }
-
-                std::sort(slowest.begin(), slowest.end(),
-                          [](const QJsonObject &a, const QJsonObject &b) {
-                            return a.value(QStringLiteral("durationMicro")).toDouble() >
-                                   b.value(QStringLiteral("durationMicro")).toDouble();
-                          });
-
-                while(slowest.size() > top)
-                  slowest.removeLast();
-
-                QJsonArray slowestJson;
-                for(const QJsonObject &entry : slowest)
-                  slowestJson.push_back(entry);
-
-                QJsonObject out;
-                out[QStringLiteral("supported")] = true;
-                out[QStringLiteral("counter")] = QStringLiteral("EventGPUDuration");
-                out[QStringLiteral("unit")] = QStringLiteral("microseconds");
-                out[QStringLiteral("eventCount")] = double(timings.size());
-                out[QStringLiteral("timings")] = timings;
-                out[QStringLiteral("slowest")] = slowestJson;
-                return ToolResult::Success(out, QString());
-              });
+          ActionTimingOptions options;
+          const ToolResult parsed = ParseActionTimingOptions(args, options);
+          if(!parsed.ok) return parsed;
+          return adapter.ActionTimings(options, call);
         });
   }
 
@@ -2110,6 +1993,7 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
 
   {
     QJsonObject props;
+    AddSchemaProperty(props, "eventId", "integer", "Positive event selects replay; 0/omission preserves current event.");
     AddSchemaProperty(props, "includePipelineState", "boolean",
                       "Also include the live replay pipeline state (default true).");
 
@@ -2124,12 +2008,23 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                        ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
                        MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
+          return adapter.WithCaptureUI(call, [&](ICaptureContext &ctx) -> ToolResult {
+          if(!ctx.Config().MCP_AllowSensitiveData) return SensitiveDenied("renderdoc_getPipelineState");
+          int64_t eventArg = 0;
+          if(!ReadResourceInteger(args, "eventId", 0, UINT32_MAX, eventArg))
+            return FailWithCapture(ErrorCode::InvalidParams, "Invalid eventId");
+          const uint32_t current = adapter.Snapshot().currentEvent;
           const bool includeState = args.value(QStringLiteral("includePipelineState")).toBool(true);
 
           ToolResult result = adapter.DispatchBlock(
               "renderdoc_getPipelineState", call,
-              [includeState](IReplayController &replay) -> ToolResult {
+              [includeState, eventArg, current](IReplayController &replay) -> ToolResult {
+                uint32_t event = 0;
+                ToolResult selected = SelectResourceEvent(replay.GetRootActions(), uint32_t(eventArg), false,
+                    [&](uint32_t eid) { replay.SetFrameEvent(eid, false); }, event);
+                if(!selected.ok) return selected;
                 QJsonObject out;
+                out[QStringLiteral("eventId")] = double(event ? event : current);
 
                 // The capture-load-time fields the UI already has, without
                 // touching the replay thread for anything else.
@@ -2151,6 +2046,7 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
             return result;
 
           return WithCapture(adapter, result);
+          });
         });
   }
 
@@ -2200,12 +2096,23 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
 
   {
     QJsonObject props;
-    AddSchemaProperty(props, "resourceId", "integer", "The shader resource id.");
-    AddSchemaProperty(props, "pipeline", "integer",
-                      "Optional pipeline state object this shader is bound to.");
-    AddSchemaProperty(props, "entryPoint", "string",
-                      "Optional entry point to reflect. Defaults to the first entry point.");
-    props[QStringLiteral("required")] = QJsonArray{QStringLiteral("resourceId")};
+    AddSchemaProperty(props, "resourceId", "integer", "Shader resource id, required without eventId.");
+    AddSchemaProperty(props, "pipeline", "integer", "Optional pipeline; validated against event binding.");
+    for(const QString &key : {QStringLiteral("resourceId"), QStringLiteral("pipeline")})
+    {
+      QJsonObject property = props.value(key).toObject();
+      property[QStringLiteral("type")] = QJsonArray{QStringLiteral("string"), QStringLiteral("integer")};
+      props[key] = property;
+    }
+    AddSchemaProperty(props, "entryPoint", "string", "Optional entry point to reflect.");
+    AddSchemaProperty(props, "eventId", "integer", "Event whose shader bindings to inspect.");
+    QJsonObject event = props.value(QStringLiteral("eventId")).toObject();
+    event[QStringLiteral("minimum")] = 1;
+    event[QStringLiteral("maximum")] = double(UINT32_MAX);
+    props[QStringLiteral("eventId")] = event;
+    AddSchemaProperty(props, "stage", "string", "Optional shader stage, including fragment/pixel aliases.");
+    AddSchemaProperty(props, "includeSource", "boolean", "Include source/disassembly; default true with stage.");
+    AddSchemaProperty(props, "includeConstantBuffers", "boolean", "Decode constants; defaults true for event queries, requires eventId.");
 
     registry.Add(
         ToolDefinition{QStringLiteral("renderdoc_getShaderInfo"), QStringLiteral("Get Shader Info"),
@@ -2213,168 +2120,10 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
                                       "input/output signatures, constant blocks, samplers and the "
                                       "read-only/read-write resource bindings."),
                        ToolEffects::ReadOnly,
-                       ToolRequirements::LoadedCapture | ToolRequirements::ReplayController,
+                       ToolRequirements::None,
                        MakeSchema(props)},
         [&adapter](const QJsonObject &args, CallContext &call) -> ToolResult {
-          if(!SensitiveAllowed(call))
-            return SensitiveDenied("renderdoc_getShaderInfo");
-
-          const ResourceId shader = ArgResourceId(args, "resourceId");
-          const ResourceId pipeline = ArgResourceId(args, "pipeline");
-          const QString entryOverride = ArgStr(args, "entryPoint");
-
-          if(shader == ResourceId())
-            return FailWithCapture(ErrorCode::InvalidToolInput, "resourceId is required");
-
-          return adapter.DispatchBlock(
-              "renderdoc_getShaderInfo", call,
-              [shader, pipeline, entryOverride](IReplayController &replay) -> ToolResult {
-                const rdcarray<ShaderEntryPoint> entries = replay.GetShaderEntryPoints(shader);
-                if(entries.empty())
-                {
-                  return ToolResult::Failure(Error(ErrorCode::InvalidParams,
-                                                   QObject::tr("No entry points found for shader")));
-                }
-
-                ShaderEntryPoint entry = entries[0];
-                if(!entryOverride.isEmpty())
-                {
-                  bool found = false;
-                  for(const ShaderEntryPoint &e : entries)
-                  {
-                    if(QString::fromUtf8(e.name.c_str()) == entryOverride)
-                    {
-                      entry = e;
-                      found = true;
-                      break;
-                    }
-                  }
-                  if(!found)
-                  {
-                    return ToolResult::Failure(Error(
-                        ErrorCode::InvalidParams,
-                        QObject::tr("Entry point '%1' not found in shader").arg(entryOverride)));
-                  }
-                }
-
-                const ShaderReflection *refl = replay.GetShader(pipeline, shader, entry);
-                if(refl == NULL)
-                {
-                  return ToolResult::Failure(Error(ErrorCode::InternalError,
-                                                   QObject::tr("Shader reflection unavailable")));
-                }
-
-                QJsonObject out;
-                out[QStringLiteral("resourceId")] = ResourceRef(shader);
-                out[QStringLiteral("entryPoint")] = QString::fromUtf8(refl->entryPoint.c_str());
-                out[QStringLiteral("stage")] = detail::ShaderStageName(refl->stage);
-                out[QStringLiteral("encoding")] = int(uint32_t(refl->encoding));
-                out[QStringLiteral("rawByteLength")] = double(refl->rawBytes.size());
-                out[QStringLiteral("outputTopology")] =
-                    detail::TopologyName(refl->outputTopology);
-
-                QJsonArray threads;
-                for(uint32_t i = 0; i < 3; i++)
-                  threads.push_back(double(refl->dispatchThreadsDimension[i]));
-                out[QStringLiteral("dispatchThreadsDimension")] = threads;
-
-                {
-                  QJsonArray sig;
-                  for(const SigParameter &s : refl->inputSignature)
-                  {
-                    QJsonObject o;
-                    o[QStringLiteral("varName")] = QString::fromUtf8(s.varName.c_str());
-                    o[QStringLiteral("semanticName")] =
-                        QString::fromUtf8(s.semanticName.c_str());
-                    o[QStringLiteral("semanticIndex")] = double(s.semanticIndex);
-                    o[QStringLiteral("regIndex")] = double(s.regIndex);
-                    o[QStringLiteral("compCount")] = double(s.compCount);
-                    o[QStringLiteral("varType")] = detail::VarTypeName(s.varType);
-                    sig.push_back(o);
-                  }
-                  out[QStringLiteral("inputSignature")] = sig;
-                }
-
-                {
-                  QJsonArray sig;
-                  for(const SigParameter &s : refl->outputSignature)
-                  {
-                    QJsonObject o;
-                    o[QStringLiteral("varName")] = QString::fromUtf8(s.varName.c_str());
-                    o[QStringLiteral("semanticName")] =
-                        QString::fromUtf8(s.semanticName.c_str());
-                    o[QStringLiteral("semanticIndex")] = double(s.semanticIndex);
-                    o[QStringLiteral("regIndex")] = double(s.regIndex);
-                    o[QStringLiteral("compCount")] = double(s.compCount);
-                    o[QStringLiteral("varType")] = detail::VarTypeName(s.varType);
-                    sig.push_back(o);
-                  }
-                  out[QStringLiteral("outputSignature")] = sig;
-                }
-
-                {
-                  QJsonArray blocks;
-                  for(const ConstantBlock &cb : refl->constantBlocks)
-                  {
-                    QJsonObject o;
-                    o[QStringLiteral("name")] = QString::fromUtf8(cb.name.c_str());
-                    o[QStringLiteral("byteSize")] = double(cb.byteSize);
-                    o[QStringLiteral("bindPoint")] = double(cb.fixedBindNumber);
-                    o[QStringLiteral("bindSet")] = double(cb.fixedBindSetOrSpace);
-                    o[QStringLiteral("bindArraySize")] = double(cb.bindArraySize);
-                    o[QStringLiteral("bufferBacked")] = cb.bufferBacked;
-                    o[QStringLiteral("variableCount")] = double(cb.variables.size());
-                    blocks.push_back(o);
-                  }
-                  out[QStringLiteral("constantBlocks")] = blocks;
-                }
-
-                {
-                  QJsonArray samplers;
-                  for(const ShaderSampler &s : refl->samplers)
-                  {
-                    QJsonObject o;
-                    o[QStringLiteral("name")] = QString::fromUtf8(s.name.c_str());
-                    o[QStringLiteral("bindPoint")] = double(s.fixedBindNumber);
-                    o[QStringLiteral("bindSet")] = double(s.fixedBindSetOrSpace);
-                    o[QStringLiteral("bindArraySize")] = double(s.bindArraySize);
-                    samplers.push_back(o);
-                  }
-                  out[QStringLiteral("samplers")] = samplers;
-                }
-
-                {
-                  QJsonArray ro;
-                  for(const ShaderResource &r : refl->readOnlyResources)
-                  {
-                    QJsonObject o;
-                    o[QStringLiteral("name")] = QString::fromUtf8(r.name.c_str());
-                    o[QStringLiteral("textureType")] = detail::TextureTypeName(r.textureType);
-                    o[QStringLiteral("descriptorType")] = int(uint32_t(r.descriptorType));
-                    o[QStringLiteral("bindPoint")] = double(r.fixedBindNumber);
-                    o[QStringLiteral("bindSet")] = double(r.fixedBindSetOrSpace);
-                    ro.push_back(o);
-                  }
-                  out[QStringLiteral("readOnlyResources")] = ro;
-                }
-
-                {
-                  QJsonArray rw;
-                  for(const ShaderResource &r : refl->readWriteResources)
-                  {
-                    QJsonObject o;
-                    o[QStringLiteral("name")] = QString::fromUtf8(r.name.c_str());
-                    o[QStringLiteral("textureType")] = detail::TextureTypeName(r.textureType);
-                    o[QStringLiteral("descriptorType")] = int(uint32_t(r.descriptorType));
-                    o[QStringLiteral("bindPoint")] = double(r.fixedBindNumber);
-                    o[QStringLiteral("bindSet")] = double(r.fixedBindSetOrSpace);
-                    rw.push_back(o);
-                  }
-                  out[QStringLiteral("readWriteResources")] = rw;
-                }
-
-                return ToolResult::Success(out, QString());
-              });
+          return adapter.ShaderTool(QStringLiteral("renderdoc_getShaderInfo"), args, call);
         });
   }
 
@@ -2727,6 +2476,7 @@ int RegisterCoreTools(ToolRegistry &registry, QueryAdapter &adapter)
         });
   }
 
+  RegisterCompatibilityTools(registry, adapter, true);
   return registry.Count();
 }
 

@@ -29,6 +29,7 @@
 #include <QStringList>
 #include <QVector>
 #include <functional>
+#include <memory>
 #include <stdint.h>
 #include "MCPAnalysisModel.h"
 #include "MCPToolRegistry.h"
@@ -45,6 +46,8 @@ struct IReplayController;
 
 namespace MCP
 {
+class NativeCaptureSession;
+struct ComparisonSnapshot;
 
 // P0-5 CaptureContext snapshot adapter
 // P0-6 Replay query dispatcher
@@ -52,13 +55,10 @@ namespace MCP
 // MCPQueryAdapter is the only part of the AI/MCP module that is allowed to touch
 // the live qrenderdoc state. It has two clearly separated responsibilities:
 //
-//  * snapshot reads (P0-5) go through ICaptureContext directly. These read the
-//    already-materialised data that the UI itself displays - the capture filename,
-//    the selected event, the action tree, the resource/texture/buffer lists, the
-//    frame statistics and the bookmarks. No replay thread is involved and the data
-//    is safe to read from any thread *as long as the adapter is the only writer*,
-//    which is guaranteed because the HTTP layer serialises access through
-//    MCPQueryAdapter::EnsureSnapshotThread().
+//  * snapshot reads and capture lifecycle mutations go through ICaptureContext
+//    on the UI thread via ReadOnUIThread(). HTTP tools run concurrently on workers;
+//    neither transport serialisation nor an adapter-only writer is assumed.
+//    Target control is separately owned by NativeCaptureSession on its worker.
 //
 //  * replay queries (P0-6) must never call IReplayController directly. Every such
 //    call is funnelled through IReplayManager::BlockInvoke() so it executes on the
@@ -115,6 +115,20 @@ public:
   // internals.
   ICaptureContext *Context() const { return m_Ctx; }
 
+  // Application capture session, NOT an MCP transport session. The native target
+  // connection is shared by clients of this qrenderdoc instance, like the UI.
+  ToolResult SessionTool(const QString &name, const QJsonObject &args, CallContext &call);
+  QJsonObject ApplicationSessionState() const;
+
+  // Shader tools run a capture-stable UI transaction and replay-only callbacks.
+  ToolResult ShaderTool(const QString &name, const QJsonObject &args, CallContext &call);
+  ToolResult ResourceTool(const QString &name, const QJsonObject &args, CallContext &call);
+
+  // All session-tool CaptureContext access must use this UI-thread boundary.
+  // Replay controller queries still exclusively use DispatchBlock().
+  ToolResult WithCaptureUI(CallContext &call,
+                          const std::function<ToolResult(ICaptureContext &)> &fn);
+
   // ---- P0-5 snapshot reads ------------------------------------------------
 
   // The capture/selection/status snapshot described above.
@@ -136,14 +150,16 @@ public:
   // The root actions of the capture, serialised. `eventId` filters to a single
   // top-level subtree when non-zero. `maxCount` bounds the number of siblings.
   ToolResult RootActions(uint32_t eventId = 0, int maxCount = 0,
-                         const QStringList &fields = QStringList());
+                         const QStringList &fields = QStringList(),
+                         const EventBrowserFilterOptions &filters = EventBrowserFilterOptions());
+  ToolResult ActionTimings(const ActionTimingOptions &options, CallContext &call);
 
   // A single action at an explicit eventId, including its direct children names.
   ToolResult Action(uint32_t eventId, const QStringList &fields = QStringList());
 
   // The full list of resources (optionally filtered by resource type name).
   ToolResult Resources(const QString &typeFilter = QString(), int maxCount = 0,
-                       const QStringList &fields = QStringList());
+                       const QStringList &fields = QStringList(), int offset = 0);
 
   // A single resource description.
   ToolResult Resource(ResourceId id);
@@ -186,18 +202,12 @@ public:
   // the returned records (default 200, hard max 2000).
   ToolResult BookmarksExtended(int maxCount = 0, const QStringList &fields = QStringList());
 
-  // Create or update an investigation bookmark. The record is merged into the
-  // sidecar file-wise (only non-empty fields overwrite, so a partial update never
-  // clears a field the caller did not mention) AND its note is mirrored into the
-  // native bookmark list so the Event Browser shows it. This mutates capture state
-  // and writes a file, so the caller must have confirmed the side effect - the tool
-  // registration enforces that, not the registry.
-  ToolResult UpdateBookmark(const BookmarkTaggedItem &item, uint32_t eventId, CallContext &call);
+  // Presence-aware bookmark mutation in one capture-stable UI transaction. Native
+  // notes and the sidecar share this owner; file errors precede native mutation.
+  ToolResult BookmarkTool(const QString &operation, const QJsonObject &args, CallContext &call);
 
-  // Remove an investigation bookmark by its stable id (empty id falls back to the
-  // event id) and drop the matching native bookmark. Same side-effect contract as
-  // UpdateBookmark.
-  ToolResult RemoveBookmark(const QString &bookmarkId, uint32_t eventId, CallContext &call);
+  // Observation-only environment snapshot, useful without a loaded capture.
+  ToolResult DiagnoseEnvironment(const QString &format, CallContext &call);
 
   // The full pipeline/API-state snapshot from the UI's own capture state: the
   // API properties, frame description/statistics and the current modifications.
@@ -219,6 +229,14 @@ public:
   // AsyncInvoke/BlockInvoke directly.
   ToolResult DispatchBlock(const char *toolName, CallContext &call,
                            const std::function<ToolResult(IReplayController &)> &fn);
+
+  // Independent read-only replay: opens, queries and shuts down its own file and
+  // controller on one worker, serialized independently of the UI replay manager.
+  // The callback must not retain the controller. No live capture is required.
+  ToolResult DispatchBlock(const char *toolName, const QString &capturePath, CallContext &call,
+                           const std::function<ToolResult(IReplayController &)> &fn);
+  ToolResult ReadComparisonSnapshot(const QString &path, bool fetchTimings, CallContext &call,
+                                    ComparisonSnapshot &out);
 
   // Convenience wrapper for a plain function that returns whether the operation
   // succeeded and fills `out`. Useful for the many single-call replay queries.
@@ -280,7 +298,7 @@ public:
   // Producer/consumer tracking for one resource: every event that reads it and
   // every event that writes it, in event order, with the usage and evidence.
   ToolResult TraceResourceUsage(ResourceId id, CallContext &call,
-                                const QStringList &fields = QStringList());
+                                const QStringList &fields = QStringList(), int maxEvents = 0);
 
   // ---- P1-4 memory audit, lifetimes, unused resources and leak heuristics ---
 
@@ -294,7 +312,8 @@ public:
   // the first/last event that touched it. Walks the frame's leaf events so it
   // requires replay. `limit` caps the rows returned.
   ToolResult ResourceLifetime(int limit, CallContext &call,
-                              const QStringList &fields = QStringList());
+                              const QStringList &fields = QStringList(),
+                              ResourceId selectedResource = ResourceId());
 
   // Resources that no pipeline-bound event in the frame ever touched. This is a
   // heuristic (unbound/indirect access and out-of-frame use are invisible) so
@@ -337,7 +356,8 @@ public:
   // marked ToVerify with a limitation rather than silently returning zeros.
   ToolResult GeneratePerformanceReport(int limit, bool includePipeline, bool includeMesh,
                                        CallContext &call,
-                                       const QStringList &fields = QStringList());
+                                       const QStringList &fields = QStringList(),
+                                       const QString &format = QString());
 
   // Serialise the same report as a document whose `format` is "json" or
   // "markdown" (default). The rendered text is returned in-band as `content`
@@ -380,6 +400,7 @@ private:
   T ReadOnUIThread(const std::function<T()> &fn) const;
 
   ICaptureContext *m_Ctx = NULL;
+  std::shared_ptr<NativeCaptureSession> m_ApplicationSession;
 };
 
 //

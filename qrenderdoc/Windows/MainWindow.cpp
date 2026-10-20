@@ -38,6 +38,11 @@
 #include <QToolButton>
 #include <QToolTip>
 #include "Code/AI/MCPExternalTools.h"
+#include "Code/AI/MCPSessionTools.h"
+#include "Code/AI/MCPShaderTools.h"
+#include "Code/AI/MCPComparisonTools.h"
+#include "Code/AI/MCPCompatibilityTools.h"
+#include "Code/AI/MCPResourceTools.h"
 #include "Code/AI/MCPHttpServer.h"
 #include "Code/AI/MCPQueryAdapter.h"
 #include "Code/AI/MCPToolRegistry.h"
@@ -62,6 +67,7 @@
 #include "Windows/Dialogs/SystemTraceViewer.h"
 #include "Windows/Dialogs/TipsDialog.h"
 #include "Windows/Dialogs/UpdateDialog.h"
+#include "toolwindowmanager/ToolWindowManagerArea.h"
 #include "ui_MainWindow.h"
 #include "version.h"
 
@@ -152,6 +158,11 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   m_MCPRegistry = new MCP::ToolRegistry();
   MCP::RegisterCoreTools(*m_MCPRegistry, *m_MCPAdapter);
   MCP::RegisterExternalToolTools(*m_MCPRegistry, *m_MCPAdapter);
+  MCP::RegisterSessionTools(*m_MCPRegistry, *m_MCPAdapter);
+  MCP::RegisterShaderTools(*m_MCPRegistry, *m_MCPAdapter);
+  MCP::RegisterComparisonTools(*m_MCPRegistry, *m_MCPAdapter);
+  MCP::RegisterCompatibilityTools(*m_MCPRegistry, *m_MCPAdapter);
+  MCP::RegisterResourceTools(*m_MCPRegistry, *m_MCPAdapter);
 
   m_MCPServer = new MCP::HttpServer(this);
   m_MCPServer->SetRegistry(m_MCPRegistry);
@@ -521,6 +532,13 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   bugupdate->start();
 
   ui->toolWindowManager->setToolWindowCreateCallback([this](const QString &objectName) -> QWidget * {
+    // The system trace panel is owned here rather than by CaptureContext: it is created on demand
+    // by a menu action and must survive being hidden by its dock tab. Restoring a saved layout
+    // asks for it by objectName, because a restored layout cannot reference a widget that was
+    // never created this session, so re-create the very same retained instance here.
+    if(objectName == lit("systemTraceViewer"))
+      return ensureSystemTraceViewer()->Widget();
+
     return m_Ctx.CreateBuiltinWindow(objectName);
   });
 
@@ -1866,6 +1884,15 @@ void MainWindow::LoadInitialLayout()
   // Add the MCP controls after the saved or default layout has established the Event Browser area.
   // Adding it during MainWindow construction uses an invalid tool-window area and prevents startup.
   on_action_MCP_Server_triggered();
+
+  // The system trace panel is resident: it is docked here, alongside the MCP controls, so it is
+  // present from the first frame instead of only appearing after its menu action. It is added
+  // without raising, because the panel must exist without taking focus away from the Event Browser
+  // the default layout just established; the menu action still raises it on demand.
+  //
+  // This runs *after* LoadLayout, so a layout that already contains the panel simply re-registers
+  // it (with the normalised HideOnClose property) rather than adding a second dock for it.
+  dockSystemTraceViewer(false);
 }
 
 bool MainWindow::ErrorReportsAllowed()
@@ -2990,9 +3017,81 @@ void MainWindow::on_action_Open_Snapdragon_Profile_triggered()
   m_Ctx.OpenQCProfile(path);
 }
 
+SystemTraceViewer *MainWindow::ensureSystemTraceViewer()
+{
+  // One instance only. It owns the imported trace, the parsed series, the clock alignment and the
+  // device capture log, so a second instance would silently present an empty view of a trace the
+  // user has already loaded.
+  if(m_SystemTraceViewer.isNull())
+  {
+    // Parented to the tool window manager, not to the main window: addToolWindows() unconditionally
+    // does setParent(0) before the widget is adopted by an area, so a parent set here would only
+    // affect the brief window before the first dock.
+    m_SystemTraceViewer = new SystemTraceViewer(m_Ctx, ui->toolWindowManager);
+  }
+
+  return m_SystemTraceViewer;
+}
+
+void MainWindow::dockSystemTraceViewer(bool raise)
+{
+  // The instance is retained: a second call raises the existing tab instead of creating a duplicate,
+  // so an imported trace and its capture log survive the panel being closed and re-opened.
+  SystemTraceViewer *viewer = ensureSystemTraceViewer();
+
+  if(ui->toolWindowManager->toolWindows().contains(viewer))
+  {
+    // Restoring a saved layout re-creates the panel through createToolWindow(), which registers it
+    // with no properties at all. Normalise it here so closing its tab hides the panel rather than
+    // deleting it, keeping the imported trace and capture log for the next activation.
+    ui->toolWindowManager->setToolWindowProperties(viewer, ToolWindowManager::HideOnClose);
+
+    if(raise)
+      ToolWindowManager::raiseToolWindow(viewer);
+
+    return;
+  }
+
+  // ToolWindowManagerArea::addToolWindows() promotes whatever it just inserted to the current tab,
+  // and addToolWindow() routes through it. A plain insert at startup would therefore leave the trace
+  // panel -- empty, with no capture loaded -- in front of the Event Browser the default layout just
+  // established. `raise` is false exactly for that startup call, so the tab that is currently in
+  // front is noted beforehand and restored afterwards; the menu action passes true and keeps the
+  // promotion it asked for.
+  //
+  // The receiving area is resolved from mainToolArea() directly rather than with areaOf(viewer),
+  // because the panel is not registered yet at this point. mainToolArea() only ever yields AddTo on
+  // an existing window or LastUsedArea, both of which resolve to an area that already exists.
+  ToolWindowManagerArea *target = NULL;
+  QWidget *previous = NULL;
+
+  if(!raise)
+  {
+    target = mainToolArea().area();
+
+    if(target && target->count() > 0)
+      previous = target->currentWidget();
+  }
+
+  // HideOnClose keeps the widget alive when its tab is closed, matching the retained instance
+  // above; without it the tool window manager would delete the panel on close.
+  ui->toolWindowManager->addToolWindow(viewer, mainToolArea(), ToolWindowManager::HideOnClose);
+
+  // Put the earlier tab back in front so residency does not change what the user sees on startup.
+  // Skipped when the dock landed in a different area than predicted (a fresh area is created when
+  // there is no last-used one), in which case the promotion is left alone rather than assumed.
+  if(previous)
+  {
+    const int index = target->indexOf(previous);
+
+    if(index >= 0)
+      target->setCurrentIndex(index);
+  }
+}
+
 void MainWindow::on_action_System_Trace_Correlation_triggered()
 {
-  // Deliberately not gated on m_Ctx.IsCaptureLoaded(): the window must open with no capture so the
+  // Deliberately not gated on m_Ctx.IsCaptureLoaded(): the panel must open with no capture so the
   // user can import a trace and inspect its series, frame boundaries and import warnings on its
   // own. The overlay simply reports that no capture is open until one is loaded.
   //
@@ -3000,8 +3099,10 @@ void MainWindow::on_action_System_Trace_Correlation_triggered()
   // trace export and correlates it with the current frame's actions by frame number, falling back
   // to absolute trace timestamps when no shared clock is declared. Nothing here touches the
   // capture core or requires Qualcomm binaries.
-  SystemTraceViewer *viewer = new SystemTraceViewer(m_Ctx, this);
-  viewer->show();
+  //
+  // The panel is docked rather than shown as a floating window. It is also docked at startup via
+  // LoadInitialLayout(), so this action normally just raises it.
+  dockSystemTraceViewer(true);
 }
 
 void MainWindow::on_action_Create_RGP_Profile_triggered()

@@ -1,0 +1,6 @@
+Filters: [mcp][shader]
+===============================================================================
+All tests passed (68 assertions in 4 test cases)
+
+Checking python binding consistency.
+Python bindings are consistent.

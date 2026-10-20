@@ -1,0 +1,598 @@
+﻿Build started 2026/10/20 16:54:42.
+Logging verbosity is set to: Normal.
+     1>Project "H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj" on node 1 (default targets).
+     1>Project "H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj" (1) is building "H:\tmp\renderdoc\renderdoc\renderdoc_version.vcxproj" (4) on node 2 (default targets).
+     4>RunTaskManual:
+         Read Git commit: '40a7a71f98ce67cde19c3169033ed02022cb24f8'
+       PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+       InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\version\version.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\version\version.tlog\unsuccessfulbuild".
+       ClCompile:
+         All outputs are up-to-date.
+       Lib:
+         All outputs are up-to-date.
+         renderdoc_version.vcxproj -> H:\tmp\renderdoc\x64\Development\version.lib
+       FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\version\version.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\version\version.tlog\version.lastbuildstate".
+     4>Done Building Project "H:\tmp\renderdoc\renderdoc\renderdoc_version.vcxproj" (default targets).
+     1>Project "H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj" (1) is building "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) on node 1 (default targets).
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\ihv\qc\QC.vcxproj" (6) on node 10 (default targets).
+     6>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+       InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\QC\QC.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\QC\QC.tlog\unsuccessfulbuild".
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\ihv\intel\Intel.vcxproj" (7) on node 7 (default targets).
+     7>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\dxgi\renderdoc_dxgi.vcxproj" (8) on node 5 (default targets).
+     8>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+     7>InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\Intel\Intel.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\Intel\Intel.tlog\unsuccessfulbuild".
+     8>InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\dxgi\dxgi.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\dxgi\dxgi.tlog\unsuccessfulbuild".
+     6>ClCompile:
+         All outputs are up-to-date.
+       Lib:
+         All outputs are up-to-date.
+         QC.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_QC.lib
+     8>ClCompile:
+         All outputs are up-to-date.
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\ihv\arm\ARM.vcxproj" (11) on node 3 (default targets).
+    11>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+       InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\ARM\ARM.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+     7>ClCompile:
+         All outputs are up-to-date.
+    11>InitializeBuildStatus:
+         Touching "H:/tmp/renderdoc/x64\Development\obj\ARM\ARM.tlog\unsuccessfulbuild".
+     8>ClCompile:
+         All outputs are up-to-date.
+     7>Lib:
+         All outputs are up-to-date.
+         Intel.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_Intel.lib
+    11>ClCompile:
+         All outputs are up-to-date.
+       Lib:
+         All outputs are up-to-date.
+         ARM.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_ARM.lib
+     6>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\QC\QC.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\QC\QC.tlog\QC.lastbuildstate".
+     8>Lib:
+         All outputs are up-to-date.
+         renderdoc_dxgi.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_dxgi.lib
+    11>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\ARM\ARM.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\ARM\ARM.tlog\ARM.lastbuildstate".
+    11>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\ihv\arm\ARM.vcxproj" (default targets).
+     6>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\ihv\qc\QC.vcxproj" (default targets).
+     7>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\Intel\Intel.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\Intel\Intel.tlog\Intel.lastbuildstate".
+     8>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\dxgi\dxgi.tlog\unsuccessfulbuild".
+     7>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\ihv\intel\Intel.vcxproj" (default targets).
+     8>FinalizeBuildStatus:
+         Touching "H:/tmp/renderdoc/x64\Development\obj\dxgi\dxgi.tlog\dxgi.lastbuildstate".
+     8>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\dxgi\renderdoc_dxgi.vcxproj" (default targets).
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\d3d11\renderdoc_d3d11.vcxproj" (3) on node 1 (default targets).
+     3>Project "H:\tmp\renderdoc\renderdoc\driver\d3d11\renderdoc_d3d11.vcxproj" (3) is building "H:\tmp\renderdoc\renderdoc\driver\shaders\dxbc\renderdoc_dxbc.vcxproj" (5) on node 1 (default targets).
+     5>Project "H:\tmp\renderdoc\renderdoc\driver\shaders\dxbc\renderdoc_dxbc.vcxproj" (5) is building "H:\tmp\renderdoc\renderdoc\driver\shaders\dxil\renderdoc_dxil.vcxproj" (15) on node 2 (default targets).
+    15>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+       InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\dxil\dxil.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\dxil\dxil.tlog\unsuccessfulbuild".
+       ClCompile:
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+       Lib:
+         All outputs are up-to-date.
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\ihv\nv\NV.vcxproj" (10) on node 6 (default targets).
+    10>Project "H:\tmp\renderdoc\renderdoc\driver\ihv\nv\NV.vcxproj" (10) is building "H:\tmp\renderdoc\renderdoc\driver\shaders\spirv\renderdoc_spirv.vcxproj" (16) on node 6 (default targets).
+    16>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+    15>Lib:
+         renderdoc_dxil.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_dxil.lib
+    16>InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\spirv\spirv.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\spirv\spirv.tlog\unsuccessfulbuild".
+    15>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\dxil\dxil.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\dxil\dxil.tlog\dxil.lastbuildstate".
+    15>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\shaders\dxil\renderdoc_dxil.vcxproj" (default targets).
+    16>ClCompile:
+         All outputs are up-to-date.
+     5>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+    16>ClCompile:
+         All outputs are up-to-date.
+     5>InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\dxbc\dxbc.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\dxbc\dxbc.tlog\unsuccessfulbuild".
+    16>ClCompile:
+         All outputs are up-to-date.
+       Lib:
+         All outputs are up-to-date.
+         renderdoc_spirv.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_spirv.lib
+       FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\spirv\spirv.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\spirv\spirv.tlog\spirv.lastbuildstate".
+    16>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\shaders\spirv\renderdoc_spirv.vcxproj" (default targets).
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\ihv\amd\AMD.vcxproj" (9) on node 8 (default targets).
+     9>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\vulkan\renderdoc_vulkan.vcxproj" (14) on node 11 (default targets).
+    14>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\gl\renderdoc_gl.vcxproj" (12) on node 9 (default targets).
+    12>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+       InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\gl\gl.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+    14>InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\vulkan\vulkan.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+    12>InitializeBuildStatus:
+         Touching "H:/tmp/renderdoc/x64\Development\obj\gl\gl.tlog\unsuccessfulbuild".
+    14>InitializeBuildStatus:
+         Touching "H:/tmp/renderdoc/x64\Development\obj\vulkan\vulkan.tlog\unsuccessfulbuild".
+     9>InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\AMD\AMD.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\AMD\AMD.tlog\unsuccessfulbuild".
+    10>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+       InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\NV\NV.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\NV\NV.tlog\unsuccessfulbuild".
+       ClCompile:
+         All outputs are up-to-date.
+     9>ClCompile:
+         All outputs are up-to-date.
+    10>Lib:
+         All outputs are up-to-date.
+         NV.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_NV.lib
+     5>ClCompile:
+         All outputs are up-to-date.
+    10>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\NV\NV.tlog\unsuccessfulbuild".
+     9>Lib:
+         All outputs are up-to-date.
+    10>FinalizeBuildStatus:
+         Touching "H:/tmp/renderdoc/x64\Development\obj\NV\NV.tlog\NV.lastbuildstate".
+     9>Lib:
+         AMD.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_AMD.lib
+    10>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\ihv\nv\NV.vcxproj" (default targets).
+    14>ClCompile:
+         All outputs are up-to-date.
+    12>ClCompile:
+         All outputs are up-to-date.
+    14>ClCompile:
+         All outputs are up-to-date.
+     9>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\AMD\AMD.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\AMD\AMD.tlog\AMD.lastbuildstate".
+     9>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\ihv\amd\AMD.vcxproj" (default targets).
+    12>ClCompile:
+         All outputs are up-to-date.
+    14>ClCompile:
+         All outputs are up-to-date.
+     5>ClCompile:
+         All outputs are up-to-date.
+    14>Lib:
+         All outputs are up-to-date.
+    12>Lib:
+         All outputs are up-to-date.
+    14>Lib:
+         renderdoc_vulkan.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_vulkan.lib
+    12>Lib:
+         renderdoc_gl.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_gl.lib
+     5>Lib:
+         All outputs are up-to-date.
+         renderdoc_dxbc.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_dxbc.lib
+    12>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\gl\gl.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\gl\gl.tlog\gl.lastbuildstate".
+    12>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\gl\renderdoc_gl.vcxproj" (default targets).
+    14>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\vulkan\vulkan.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\vulkan\vulkan.tlog\vulkan.lastbuildstate".
+    14>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\vulkan\renderdoc_vulkan.vcxproj" (default targets).
+     5>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\dxbc\dxbc.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\dxbc\dxbc.tlog\dxbc.lastbuildstate".
+     5>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\shaders\dxbc\renderdoc_dxbc.vcxproj" (default targets).
+     2>Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (2) is building "H:\tmp\renderdoc\renderdoc\driver\d3d12\renderdoc_d3d12.vcxproj" (13) on node 4 (default targets).
+    13>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+     3>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+       InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\d3d11\d3d11.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+    13>InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\d3d12\d3d12.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\d3d12\d3d12.tlog\unsuccessfulbuild".
+     3>InitializeBuildStatus:
+         Touching "H:/tmp/renderdoc/x64\Development\obj\d3d11\d3d11.tlog\unsuccessfulbuild".
+       ClCompile:
+         All outputs are up-to-date.
+    13>ClCompile:
+         All outputs are up-to-date.
+     3>ClCompile:
+         All outputs are up-to-date.
+       Lib:
+         All outputs are up-to-date.
+    13>ClCompile:
+         All outputs are up-to-date.
+     3>Lib:
+         renderdoc_d3d11.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_d3d11.lib
+    13>Lib:
+         All outputs are up-to-date.
+     3>FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\d3d11\d3d11.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\d3d11\d3d11.tlog\d3d11.lastbuildstate".
+     3>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\d3d11\renderdoc_d3d11.vcxproj" (default targets).
+    13>Lib:
+         renderdoc_d3d12.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_d3d12.lib
+       FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\d3d12\d3d12.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\d3d12\d3d12.tlog\d3d12.lastbuildstate".
+    13>Done Building Project "H:\tmp\renderdoc\renderdoc\driver\d3d12\renderdoc_d3d12.vcxproj" (default targets).
+     2>_bakeShaders:
+       Skipping target "_bakeShaders" because all output files are up-to-date with respect to the input files.
+       _jsonProcess:
+         Processing layer JSON file for RenderDoc 1.47
+       PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+       InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\renderdoc\renderdoc.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\renderdoc\renderdoc.tlog\unsuccessfulbuild".
+       ClCompile:
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+       ResourceCompile:
+         All outputs are up-to-date.
+       Link:
+         All outputs are up-to-date.
+         renderdoc.vcxproj -> H:\tmp\renderdoc\x64\Development\renderdoc.dll
+       _CopyOutOfDateSourceItemsToOutputDirectory:
+       Skipping target "_CopyOutOfDateSourceItemsToOutputDirectory" because all output files are up-to-date with respect to the input files.
+       AfterBuild:
+         Copying file from "H:\tmp\renderdoc\renderdoc\api\app\renderdoc_app.h" to "H:\tmp\renderdoc\x64\Development\renderdoc_app.h".
+         Copying file from "H:\tmp\renderdoc\renderdoc\3rdparty\dbghelp\x64\symsrv.dll" to "H:\tmp\renderdoc\x64\Development\symsrv.dll".
+         Copying file from "H:\tmp\renderdoc\renderdoc\3rdparty\dbghelp\x64\symsrv.yes" to "H:\tmp\renderdoc\x64\Development\symsrv.yes".
+         Copying file from "H:\tmp\renderdoc\renderdoc\3rdparty\dbghelp\x64\dbghelp.dll" to "H:\tmp\renderdoc\x64\Development\dbghelp.dll".
+       FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\renderdoc\renderdoc.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\renderdoc\renderdoc.tlog\renderdoc.lastbuildstate".
+     2>Done Building Project "H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj" (default targets).
+     1>PrepareForBuild:
+         Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+       InitializeBuildStatus:
+         Creating "H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrenderdoc.tlog\unsuccessfulbuild" because "AlwaysCreate" was specified.
+         Touching "H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrenderdoc.tlog\unsuccessfulbuild".
+       CustomBuild:
+         All outputs are up-to-date.
+       ClCompile:
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /IH:\tmp\renderdoc\qrenderdoc\ /I3rdparty /IH:/tmp/renderdoc/x64\Development\obj\qrenderdoc\generated\ /IH:/tmp/renderdoc/\renderdoc\api\replay /IH:/tmp/renderdoc/\qrenderdoc\3rdparty\python\include /IH:/tmp/renderdoc/\qrenderdoc\3rdparty\pyside\include\PySide2 /IH:/tmp/renderdoc/\qrenderdoc\3rdparty\pyside\include\shiboken2 /IH:\tmp\renderdoc\qrenderdoc\3rdparty\qt\include /IH:\tmp\renderdoc\qrenderdoc\3rdparty\qt\include\QtWidgets /IH:\tmp\renderdoc\qrenderdoc\3rdparty\qt\include\QtGui /IH:\tmp\renderdoc\qrenderdoc\3rdparty\qt\include\QtCore /IH:\tmp\renderdoc\qrenderdoc\3rdparty\qt\include\QtSvg /IH:\tmp\renderdoc\qrenderdoc\3rdparty\qt\include\QtNetwork /Zi /nologo /W4 /WX /diagnostics:column /MP /Od /D PYSIDE2_ENABLED=0 /D _WINDOWS /D UNICODE /D WIN32 /D WIN64 /D RENDERDOC_PLATFORM_WIN32 /D SCINTILLA_QT=1 /D MAKING_LIBRARY=1 /D SCI_LEXER=1 /D QT_NO_CAST_FROM_ASCII /D QT_NO_CAST_TO_ASCII /D QT_WIDGETS_LIB /D QT_GUI_LIB /D QT_CORE_LIB /D QT_SVG_LIB /D WIN64 /Gm- /EHsc /MD /GS- /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Yu"precompiled.h" /Fp"H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrenderdoc.pch" /Fo"H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\\" /Fd"H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\vc143.pdb" /external:W4 /Gd /TP /wd4100 /wd4127 /wd4189 /wd4714 /wd4718 /wd4996 /FIprecompiled.h /FC /errorReport:queue /w44062 /w44840 /Zc:strictStrings /Zc:throwingNew /utf-8 Code\AI\MCPQueryAdapter.cpp
+         MCPQueryAdapter.cpp
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+         All outputs are up-to-date.
+       ResourceCompile:
+         All outputs are up-to-date.
+       Link:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\link.exe /ERRORREPORT:QUEUE /OUT:"H:/tmp/renderdoc/x64\Development\\qrenderdoc.exe" /NOLOGO /LIBPATH:H:/tmp/renderdoc/\qrenderdoc\3rdparty\pyside\x64 /LIBPATH:H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\lib /NATVIS:python36.natvis /NATVIS:python38.natvis user32.lib H:/tmp/renderdoc/\qrenderdoc\3rdparty\python\x64\python36.lib qtmain.lib Qt5Widgets.lib Qt5Gui.lib Qt5Core.lib Qt5Svg.lib Qt5Network.lib shell32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"H:/tmp/renderdoc/x64\Development\\qrenderdoc.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /DYNAMICBASE /NXCOMPAT /MACHINE:X64 /ignore:4099 H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrenderdoc.res
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexCPP.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexDiff.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexErrorList.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexHTML.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexJSON.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexNull.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexPython.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexRust.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Accessor.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CharacterCategory.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CharacterSet.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexerBase.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexerModule.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexerNoExceptions.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LexerSimple.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PropSetSimple.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\StyleContext.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\WordList.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PlatQt.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ScintillaEditBase.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ScintillaQt.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ScintillaDocument.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ScintillaEdit.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\AutoComplete.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CallTip.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CaseConvert.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CaseFolder.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Catalogue.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CellBuffer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CharClassify.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ContractionState.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Decoration.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Document.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\EditModel.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Editor.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\EditView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ExternalLexer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Indicator.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\KeyMap.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LineMarker.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MarginView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PerLine.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PositionCache.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RESearch.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RunStyles.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ScintillaBase.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Selection.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Style.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\UniConversion.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ViewStyle.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\XPM.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\BufferFormatter.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Analytics.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Helpers.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PersistentConfig.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\QRDInterface.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RemoteHost.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ShaderProcessingTool.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\precompiled.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qprocessinfo.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PythonContext.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PythonInvokers.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\QRDUtils.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MiniQtHelper.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\Resources.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RGPInterop.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\QCInterop.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\SystemTrace.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\SystemTraceCorrelation.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\TraceCapture.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ScintillaSyntax.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDStyle.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDTweakedNativeStyle.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_AboutDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_CrashDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_UpdateDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_AnalyticsConfirmDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_AnalyticsPromptDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_APIInspector.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_AxisMappingDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_CameraControlsDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ProjectionGuessDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ResourceInspector.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_BufferFormatSpecifier.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ComputeDebugSelector.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_FindReplace.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_BufferViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_CaptureDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_CustomPaintWidget.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_D3D11PipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_D3D12PipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_DebugMessageView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_LogView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_CommentView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_DescriptorViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_EventBrowser.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_GLPipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_LiveCapture.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_EnvironmentEditor.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_OrderedListEditor.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_MarkerBreadcrumbs.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RemoteManager.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ExtensionManager.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_PerformanceCounterSelection.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_PerformanceCounterViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_PipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_PythonContext.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_QRDUtils.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_PipelineFlowChart.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RangeHistogram.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_AnnotationDisplay.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_CollapseGroupBox.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDDoubleSpinBox.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDSplitter.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDLabel.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDMenu.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDHeaderView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDToolButton.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDLineEdit.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDTextEdit.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_MainWindow.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDListView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDListWidget.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_MCPHttpServer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_InvestigationReportDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_MCPStatusDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDTableView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDTableWidget.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDTreeView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDToolTip.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_RDTreeWidget.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ResourcePreview.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ScintillaDocument.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ScintillaEdit.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ScintillaEditBase.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ScintillaQt.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_SettingsDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ShaderViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ShaderMessageViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_PythonShell.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_PixelHistoryView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_StatisticsViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_TimelineBar.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_SuggestRemoteDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_TextureGoto.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_TextureSaveDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_TextureViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_TipsDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ConfigEditor.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ThumbnailStrip.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ReplayOptionsSelector.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ToolWindowManager.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ToolWindowManagerArea.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ToolWindowManagerSplitter.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ToolWindowManagerTabBar.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_ToolWindowManagerWrapper.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_VirtualFileDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\moc_VulkanPipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrc_resources.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrc_qtconf.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\renderdoc_python.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrenderdoc_python.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\BufferFormatSpecifier.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CollapseGroupBox.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ComputeDebugSelector.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\FindReplace.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDListWidget.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDTableView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDTableWidget.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDTreeView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDToolTip.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDTreeWidget.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PipelineFlowChart.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RangeHistogram.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\AnnotationDisplay.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDDoubleSpinBox.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDSplitter.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDLabel.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDMenu.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDHeaderView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDToolButton.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDListView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ResourcePreview.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\TextureGoto.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ThumbnailStrip.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ReplayOptionsSelector.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\OrderedListEditor.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MarkerBreadcrumbs.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CaptureContext.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDStyle.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\StyleData.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDTweakedNativeStyle.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CustomPaintWidget.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\APIInspector.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ResourceInspector.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\BufferViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\DebugMessageView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LogView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CommentView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\DescriptorViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\AboutDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CrashDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\UpdateDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\AnalyticsConfirmDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\AnalyticsPromptDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\AxisMappingDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CameraControlsDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ProjectionGuessDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPTypes.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPToolRegistry.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPQueryAdapter.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPTools.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPHttpServer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPTests.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPCaptureMatch.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPRegressionDiff.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPAnalysisModel.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPDiagnostics.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPExternalTools.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPSessionTools.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPSessionTests.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPShaderTools.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPShaderTests.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPComparisonTools.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPComparisonTests.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPSourceMapping.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\InvestigationReportDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MaliAnalysisDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MCPStatusDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\SystemTraceViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\CaptureDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\LiveCapture.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\EnvironmentEditor.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PerformanceCounterSelection.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RemoteManager.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ExtensionManager.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\SettingsDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\SuggestRemoteDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\TextureSaveDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\TipsDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ConfigEditor.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\VirtualFileDialog.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\EventBrowser.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\FlowLayout.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDLineEdit.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\RDTextEdit.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\MainWindow.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ReplayManager.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\D3D11PipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\D3D12PipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\GLPipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\VulkanPipelineStateViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ShaderViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ShaderMessageViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PythonShell.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PixelHistoryView.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\PerformanceCounterViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\StatisticsViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\TimelineBar.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\TextureViewer.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ToolWindowManager.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ToolWindowManagerArea.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ToolWindowManagerSplitter.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ToolWindowManagerTabBar.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\ToolWindowManagerWrapper.obj
+         H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrenderdoc.obj
+         H:\tmp\renderdoc\x64\Development\renderdoc.lib
+         H:\tmp\renderdoc\x64\Development\obj\version\version.obj
+         qrenderdoc_local.vcxproj -> H:\tmp\renderdoc\x64\Development\qrenderdoc.exe
+       _CopyOutOfDateSourceItemsToOutputDirectory:
+       Skipping target "_CopyOutOfDateSourceItemsToOutputDirectory" because all output files are up-to-date with respect to the input files.
+       _CopyOutOfDateSourceItemsToOutputDirectoryAlways:
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\python\python36.zip" to "H:\tmp\renderdoc\x64\Development\python36.zip".
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\python\x64\_ctypes.pyd" to "H:\tmp\renderdoc\x64\Development\_ctypes.pyd".
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\python\x64\python36.dll" to "H:\tmp\renderdoc\x64\Development\python36.dll".
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\plugins\platforms\qwindows.dll" to "H:\tmp\renderdoc\x64\Development\qtplugins\platforms\qwindows.dll".
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\plugins\imageformats\qsvg.dll" to "H:\tmp\renderdoc\x64\Development\qtplugins\imageformats\qsvg.dll".
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Svg.dll" to "H:\tmp\renderdoc\x64\Development\Qt5Svg.dll".
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Network.dll" to "H:\tmp\renderdoc\x64\Development\Qt5Network.dll".
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Core.dll" to "H:\tmp\renderdoc\x64\Development\Qt5Core.dll".
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Gui.dll" to "H:\tmp\renderdoc\x64\Development\Qt5Gui.dll".
+         Copying file from "H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Widgets.dll" to "H:\tmp\renderdoc\x64\Development\Qt5Widgets.dll".
+       FinalizeBuildStatus:
+         Deleting file "H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrenderdoc.tlog\unsuccessfulbuild".
+         Touching "H:/tmp/renderdoc/x64\Development\obj\qrenderdoc\qrenderdoc.tlog\qrenderdoc.lastbuildstate".
+       PythonNotOverridden:
+         Built against default bundled python
+       CopyMaliOfflineCompiler:
+         Bundled Mali Offline Compiler from E:\Application\Arm Performance Studio 2024.6\mali_offline_compiler into H:/tmp/renderdoc/x64\Development\\mali_offline_compiler
+     1>Done Building Project "H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj" (default targets).
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:03.29

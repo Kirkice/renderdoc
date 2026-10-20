@@ -28,6 +28,7 @@
 #include <cstring>
 
 #include <QFile>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -166,38 +167,50 @@ double SystemTrace::SpanSec() const
   double maxT = 0.0;
   bool any = false;
 
-  for(const TraceSeries &s : series)
-  {
-    for(const TraceSample &sample : s.samples)
-    {
-      if(!any)
-      {
-        minT = maxT = sample.timeSec;
-        any = true;
-      }
-      else
-      {
-        minT = sample.timeSec < minT ? sample.timeSec : minT;
-        maxT = sample.timeSec > maxT ? sample.timeSec : maxT;
-      }
-    }
-  }
-
-  for(const TraceFrameBoundary &b : frameBoundaries)
-  {
+  const auto extend = [&](double t) {
     if(!any)
     {
-      minT = maxT = b.timeSec;
+      minT = maxT = t;
       any = true;
     }
     else
     {
-      minT = b.timeSec < minT ? b.timeSec : minT;
-      maxT = b.timeSec > maxT ? b.timeSec : maxT;
+      minT = t < minT ? t : minT;
+      maxT = t > maxT ? t : maxT;
+    }
+  };
+
+  for(const TraceSeries &s : series)
+  {
+    for(const TraceSample &sample : s.samples)
+      extend(sample.timeSec);
+  }
+
+  // Spans define the visible extent of a lane timeline just as samples do for a counter lane, so
+  // they must be included: a trace holding only slices would otherwise report a zero span and be
+  // drawn as an empty timeline.
+  for(const TraceTrack &track : tracks)
+  {
+    for(const TraceSpan &span : track.spans)
+    {
+      extend(span.beginSec);
+      extend(span.endSec);
     }
   }
 
+  for(const TraceFrameBoundary &b : frameBoundaries)
+    extend(b.timeSec);
+
   return any ? (maxT - minT) : 0.0;
+}
+
+int SystemTrace::SpanCount() const
+{
+  int count = 0;
+  for(const TraceTrack &track : tracks)
+    count += track.spans.size();
+
+  return count;
 }
 
 SystemTrace ImportSystemTraceJsonLines(const QString &path)
@@ -378,12 +391,123 @@ struct ChromeEventStats
 {
   int events = 0;
   int counters = 0;
-  int unknownPhase = 0;
+  int spans = 0;
+  int unmappedPhase = 0;
   int missingTimestamp = 0;
   int malformed = 0;
+  int missingDuration = 0;
+  int unterminatedSpans = 0;
+  int reversedSpans = 0;
+  int metadataApplied = 0;
+  int metadataUnusable = 0;
   int framesFromArgs = 0;
   int framesFromName = 0;
 };
+
+// One (pid,tid) lane as read from the file, before names are resolved and before nesting depth is
+// computed. Lanes are created on demand in first-seen order and then reordered for display.
+struct RawLane
+{
+  int pid = -1;
+  int tid = -1;
+  QVector<TraceSpan> spans;
+};
+
+// Accumulates the whole file. Metadata is kept here rather than applied immediately because
+// `thread_name` / `process_name` records routinely follow the spans that they caption.
+struct ChromeTraceBuilder
+{
+  QVector<TraceSeries> series;
+  QVector<TraceFrameBoundary> frames;
+  QVector<RawLane> lanes;
+  QHash<quint64, int> laneIndex;
+  QHash<int, QString> threadNames;
+  QHash<int, QString> processNames;
+  // Begin/end ('B' then 'E') spans still open, per lane, outermost last.
+  QHash<quint64, QVector<TraceSpan>> openSpans;
+  ChromeEventStats stats;
+};
+
+// A lane is identified by the pair the trace itself declares. A missing id is not invented: it is
+// folded into one explicitly "unknown" lane so those events stay visible instead of being dropped.
+quint64 LaneKey(int pid, int tid)
+{
+  const quint32 p = pid < 0 ? 0xFFFFFFFFu : (quint32)pid;
+  const quint32 t = tid < 0 ? 0xFFFFFFFFu : (quint32)tid;
+  return ((quint64)p << 32) | (quint64)t;
+}
+
+RawLane &LaneFor(ChromeTraceBuilder &builder, int pid, int tid)
+{
+  const quint64 key = LaneKey(pid, tid);
+
+  const auto it = builder.laneIndex.constFind(key);
+  if(it != builder.laneIndex.constEnd())
+    return builder.lanes[*it];
+
+  RawLane lane;
+  lane.pid = pid;
+  lane.tid = tid;
+
+  const int index = builder.lanes.size();
+  builder.lanes.push_back(lane);
+  builder.laneIndex.insert(key, index);
+
+  return builder.lanes[index];
+}
+
+// `args` values are retained verbatim for the detail pane. Scalars are rendered the way the source
+// wrote them; nested objects and arrays are rendered as compact JSON rather than being dropped,
+// because the value is evidence even when it is not a scalar.
+QString FormatArgValue(const QJsonValue &val)
+{
+  if(val.isString())
+    return val.toString();
+  if(val.isDouble())
+    return QString::number(val.toDouble(), 'g', 10);
+  if(val.isBool())
+    return val.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+  if(val.isNull() || val.isUndefined())
+    return QStringLiteral("null");
+
+  const QJsonDocument doc =
+      val.isArray() ? QJsonDocument(val.toArray()) : QJsonDocument(val.toObject());
+  return QString::fromUtf8(doc.toJson(QJsonDocument::Compact));
+}
+
+QStringList EventFields(const QJsonObject &obj)
+{
+  QStringList fields;
+
+  const QJsonObject args = obj.value(QStringLiteral("args")).toObject();
+  for(auto it = args.begin(); it != args.end(); ++it)
+    fields << QStringLiteral("%1 = %2").arg(it.key(), FormatArgValue(it.value()));
+
+  return fields;
+}
+
+// Depth from interval containment: spans already open when this one starts are its ancestors. The
+// stack only ever holds intervals that are still open at the current start time, so siblings and
+// later spans never contribute. Sorting outer-before-inner (longer span first on equal start) keeps
+// the containment relationship consistent with what a reader sees in the trace.
+void AssignNestingDepth(QVector<TraceSpan> &spans)
+{
+  std::sort(spans.begin(), spans.end(), [](const TraceSpan &a, const TraceSpan &b) {
+    if(a.beginSec != b.beginSec)
+      return a.beginSec < b.beginSec;
+    return a.endSec > b.endSec;
+  });
+
+  QVector<double> openEnds;
+  for(TraceSpan &span : spans)
+  {
+    while(!openEnds.isEmpty() && openEnds.last() <= span.beginSec)
+      openEnds.removeLast();
+
+    span.depth = openEnds.size();
+    openEnds.push_back(span.endSec);
+  }
+}
 
 // Extracts an explicit frame index from an event. Returns -1 when the event does not describe a
 // frame boundary. Two forms are accepted, in order of authority:
@@ -469,27 +593,102 @@ void AddCounterEvent(const QJsonObject &obj, QVector<TraceSeries> &series, Chrom
   stats.counters++;
 }
 
-void ConsumeChromeEvent(const QJsonObject &obj, QVector<TraceSeries> &series,
-                       QVector<TraceFrameBoundary> &frames, ChromeEventStats &stats)
+// A lane id as the trace declares it. Chrome traces put pid/tid at the event's top level; the
+// Perfetto exporter always writes both, but a trace without them still has to produce a lane
+// rather than losing the event.
+void EventLane(const QJsonObject &obj, int &pid, int &tid)
 {
-  stats.events++;
+  const QJsonValue pidVal = obj.value(QStringLiteral("pid"));
+  const QJsonValue tidVal = obj.value(QStringLiteral("tid"));
+
+  pid = pidVal.isDouble() ? (int)pidVal.toDouble() : -1;
+  tid = tidVal.isDouble() ? (int)tidVal.toDouble() : -1;
+}
+
+void ConsumeMetadata(const QJsonObject &obj, ChromeTraceBuilder &builder)
+{
+  const QString name = obj.value(QStringLiteral("name")).toString();
+  const QJsonObject args = obj.value(QStringLiteral("args")).toObject();
+
+  int pid = -1;
+  int tid = -1;
+  EventLane(obj, pid, tid);
+
+  // Perfetto writes the captioned name in args.name; some producers use args directly as a
+  // single-field object instead. Both are read, and neither is invented if absent.
+  QString value;
+  if(args.contains(QStringLiteral("name")))
+    value = args.value(QStringLiteral("name")).toString();
+  else if(args.size() == 1)
+    value = args.begin().value().toString();
+
+  if(value.isEmpty())
+  {
+    builder.stats.metadataUnusable++;
+    return;
+  }
+
+  if(name == QStringLiteral("thread_name"))
+  {
+    if(tid >= 0)
+    {
+      builder.threadNames.insert(tid, value);
+      builder.stats.metadataApplied++;
+    }
+    else
+    {
+      builder.stats.metadataUnusable++;
+    }
+    return;
+  }
+
+  if(name == QStringLiteral("process_name"))
+  {
+    if(pid >= 0)
+    {
+      builder.processNames.insert(pid, value);
+      builder.stats.metadataApplied++;
+    }
+    else
+    {
+      builder.stats.metadataUnusable++;
+    }
+    return;
+  }
+
+  // Any other metadata key (labels, sort indices, ...) is not modelled. It is not counted as a
+  // problem because nothing downstream can display it.
+}
+
+void ConsumeChromeEvent(const QJsonObject &obj, ChromeTraceBuilder &builder)
+{
+  builder.stats.events++;
 
   const QString phase = obj.value(QStringLiteral("ph")).toString();
 
   if(phase == QStringLiteral("C"))
   {
-    AddCounterEvent(obj, series, stats);
+    AddCounterEvent(obj, builder.series, builder.stats);
+    return;
+  }
+
+  if(phase == QStringLiteral("M"))
+  {
+    // Metadata carries no timestamp; it captions lanes that are resolved after the file is read.
+    ConsumeMetadata(obj, builder);
     return;
   }
 
   if(!obj.contains(QStringLiteral("ts")))
   {
-    // Only frame detection needs a timestamp; counters and metadata do not.
-    if(!obj.contains(QStringLiteral("ph")))
-      stats.malformed++;
+    builder.stats.malformed++;
     return;
   }
 
+  const double timeSec = obj.value(QStringLiteral("ts")).toDouble() * MicrosecondsToSeconds;
+
+  // Frame detection runs for every timestamped event, exactly as before, so a span that also
+  // declares a frame index still contributes its boundary.
   bool fromName = false;
   const int64_t frameIndex = FrameIndexFromEvent(obj, fromName);
 
@@ -497,19 +696,94 @@ void ConsumeChromeEvent(const QJsonObject &obj, QVector<TraceSeries> &series,
   {
     TraceFrameBoundary b;
     b.frameNumber = (uint32_t)frameIndex;
-    b.timeSec = obj.value(QStringLiteral("ts")).toDouble() * MicrosecondsToSeconds;
-    frames.push_back(b);
+    b.timeSec = timeSec;
+    builder.frames.push_back(b);
 
     if(fromName)
-      stats.framesFromName++;
+      builder.stats.framesFromName++;
     else
-      stats.framesFromArgs++;
+      builder.stats.framesFromArgs++;
   }
-  else if(phase != QStringLiteral("M"))
+
+  int pid = -1;
+  int tid = -1;
+  EventLane(obj, pid, tid);
+
+  if(phase == QStringLiteral("X"))
   {
-    // Slices, instants, async events etc. carry no measurement we represent as a series.
-    stats.unknownPhase++;
+    // A complete span. `dur` is required: without it there is no interval to draw, and inventing
+    // one (e.g. zero-length) would misrepresent the trace.
+    const QJsonValue durVal = obj.value(QStringLiteral("dur"));
+    if(!durVal.isDouble())
+    {
+      builder.stats.missingDuration++;
+      return;
+    }
+
+    TraceSpan span;
+    span.beginSec = timeSec;
+    span.endSec = timeSec + durVal.toDouble() * MicrosecondsToSeconds;
+    span.name = obj.value(QStringLiteral("name")).toString();
+    span.category = obj.value(QStringLiteral("cat")).toString();
+    span.fields = EventFields(obj);
+
+    if(span.endSec < span.beginSec)
+    {
+      // Cannot happen for a non-negative dur, but a negative dur is a malformed source, not a
+      // reason to draw an inverted box.
+      builder.stats.reversedSpans++;
+      return;
+    }
+
+    LaneFor(builder, pid, tid).spans.push_back(span);
+    builder.stats.spans++;
+    return;
   }
+
+  if(phase == QStringLiteral("B"))
+  {
+    // Begin: pushed onto this lane's stack. Its end time is unknown until the matching 'E'.
+    TraceSpan span;
+    span.beginSec = timeSec;
+    span.endSec = timeSec;
+    span.name = obj.value(QStringLiteral("name")).toString();
+    span.category = obj.value(QStringLiteral("cat")).toString();
+    span.fields = EventFields(obj);
+
+    // Ensure the lane exists even if the 'E' never arrives, so the begin is still evident.
+    LaneFor(builder, pid, tid);
+    builder.openSpans[LaneKey(pid, tid)].push_back(span);
+    return;
+  }
+
+  if(phase == QStringLiteral("E"))
+  {
+    QVector<TraceSpan> &open = builder.openSpans[LaneKey(pid, tid)];
+
+    if(open.isEmpty())
+    {
+      // An 'E' without a 'B': there is no interval to close.
+      builder.stats.unterminatedSpans++;
+      return;
+    }
+
+    TraceSpan span = open.takeLast();
+    span.endSec = timeSec;
+
+    if(span.endSec < span.beginSec)
+    {
+      builder.stats.reversedSpans++;
+      return;
+    }
+
+    LaneFor(builder, pid, tid).spans.push_back(span);
+    builder.stats.spans++;
+    return;
+  }
+
+  // Instant ('i'), async ('b'/'n'/'e'), flow ('s'/'t'/'f'), object ('N'/'O'/'D') and legacy phases
+  // have no duration to draw as a lane interval, so they are counted rather than coerced.
+  builder.stats.unmappedPhase++;
 }
 }
 
@@ -540,7 +814,9 @@ SystemTrace ImportChromeTraceEventFormat(const QString &path)
     return trace;
   }
 
-  ChromeEventStats stats;
+  // The builder accumulates everything, including metadata that captions lanes created by events
+  // encountered earlier in the file.
+  ChromeTraceBuilder builder;
 
   // Locate the event stream: either the value of "traceEvents", or the file's top-level array.
   int pos = 0;
@@ -620,9 +896,9 @@ SystemTrace ImportChromeTraceEventFormat(const QString &path)
             QJsonDocument::fromJson(contents.mid(objectStart, pos - objectStart + 1), &err);
 
         if(err.error != QJsonParseError::NoError || !doc.isObject())
-          stats.malformed++;
+          builder.stats.malformed++;
         else
-          ConsumeChromeEvent(doc.object(), trace.series, trace.frameBoundaries, stats);
+          ConsumeChromeEvent(doc.object(), builder);
 
         objectStart = -1;
       }
@@ -634,10 +910,15 @@ SystemTrace ImportChromeTraceEventFormat(const QString &path)
       break;
   }
 
+  const ChromeEventStats &stats = builder.stats;
+
   if(!sawKey && stats.events == 0)
     trace.warnings << QObject::tr(
         "Trace has no recognisable top-level event array; the file may not be a Chrome trace "
         "export");
+
+  trace.series = builder.series;
+  trace.frameBoundaries = builder.frames;
 
   for(TraceSeries &s : trace.series)
     s.Sort();
@@ -647,9 +928,132 @@ SystemTrace ImportChromeTraceEventFormat(const QString &path)
               return a.timeSec < b.timeSec;
             });
 
-  if(stats.counters == 0)
+  // --- Lane construction ------------------------------------------------------------------------
+  //
+  // Lanes with spans carry the real timeline. A span open at end-of-file ('B' with no 'E') is
+  // retained and closed at the last observed timestamp: dropping it would hide work that really
+  // happened, while inventing an end time beyond the trace would draw a box off the timeline.
+  double lastTs = 0.0;
+  bool anyTs = false;
+  for(const RawLane &lane : builder.lanes)
+  {
+    for(const TraceSpan &span : lane.spans)
+    {
+      if(!anyTs || span.endSec > lastTs)
+        lastTs = span.endSec;
+      anyTs = true;
+    }
+  }
+
+  int closedUnterminated = 0;
+  for(auto it = builder.openSpans.begin(); it != builder.openSpans.end(); ++it)
+  {
+    if(it.value().isEmpty())
+      continue;
+
+    // The lane is located through the same key it was opened under.
+    const quint32 pidBits = (quint32)(it.key() >> 32);
+    const quint32 tidBits = (quint32)(it.key() & 0xFFFFFFFFull);
+    const int pid = pidBits == 0xFFFFFFFFu ? -1 : (int)pidBits;
+    const int tid = tidBits == 0xFFFFFFFFu ? -1 : (int)tidBits;
+
+    RawLane &lane = LaneFor(builder, pid, tid);
+    for(TraceSpan &span : it.value())
+    {
+      span.endSec = anyTs ? lastTs : span.beginSec;
+      lane.spans.push_back(span);
+      closedUnterminated++;
+    }
+  }
+
+  // Counter lanes come first and are ordered by series, so the metrics that explain GPU-bound
+  // frames stay at the top of the view the way SDP presents them. Thread lanes follow, grouped by
+  // process and then ordered by tid, which is stable across imports.
+  for(int i = 0; i < trace.series.size(); i++)
+  {
+    TraceTrack track;
+    track.kind = TraceTrackKind::Counter;
+    track.name = trace.series[i].name;
+    track.unit = trace.series[i].unit;
+    track.counterSeries = i;
+    trace.tracks.push_back(track);
+  }
+
+  // Order lanes by pid then tid so the group headers stay contiguous; lanes without ids sort last
+  // and are named as unknown rather than being assigned a fabricated id.
+  QVector<int> order;
+  order.reserve(builder.lanes.size());
+  for(int i = 0; i < builder.lanes.size(); i++)
+    order.push_back(i);
+
+  std::sort(order.begin(), order.end(), [&](int a, int b) {
+    const RawLane &la = builder.lanes[a];
+    const RawLane &lb = builder.lanes[b];
+
+    if(la.pid != lb.pid)
+    {
+      if(la.pid < 0)
+        return false;
+      if(lb.pid < 0)
+        return true;
+      return la.pid < lb.pid;
+    }
+
+    if(la.tid != lb.tid)
+    {
+      if(la.tid < 0)
+        return false;
+      if(lb.tid < 0)
+        return true;
+      return la.tid < lb.tid;
+    }
+
+    return a < b;
+  });
+
+  for(int laneIdx : order)
+  {
+    RawLane &lane = builder.lanes[laneIdx];
+
+    if(lane.spans.isEmpty())
+      continue;
+
+    AssignNestingDepth(lane.spans);
+
+    TraceTrack track;
+    track.pid = lane.pid;
+    track.tid = lane.tid;
+    track.kind = TraceTrackKind::Thread;
+
+    // Names come only from metadata the trace itself declared. When it declared none, the caption
+    // names the ids it did declare, which is truthful and still lets the user correlate a lane with
+    // the trace's own pid/tid.
+    const QString threadName = lane.tid >= 0 ? builder.threadNames.value(lane.tid) : QString();
+    const QString processName = lane.pid >= 0 ? builder.processNames.value(lane.pid) : QString();
+
+    if(!threadName.isEmpty())
+      track.name = threadName;
+    else if(lane.tid >= 0)
+      track.name = QObject::tr("tid %1").arg(lane.tid);
+    else
+      track.name = QObject::tr("Unknown thread");
+
+    if(!processName.isEmpty())
+      track.group = processName;
+    else if(lane.pid >= 0)
+      track.group = QObject::tr("pid %1").arg(lane.pid);
+
+    if(threadName.isEmpty() && processName.isEmpty() && lane.tid < 0 && lane.pid < 0)
+      track.kind = TraceTrackKind::Process;
+
+    track.spans = lane.spans;
+    trace.tracks.push_back(track);
+  }
+
+  if(stats.counters == 0 && !trace.tracks.isEmpty())
     trace.warnings << QObject::tr(
-        "Trace contained no counter ('ph':'C') events: only frame boundaries can be correlated");
+        "Trace contained no counter ('ph':'C') events: only spans and frame boundaries can be "
+        "shown");
 
   if(stats.framesFromName > 0)
     trace.warnings << QObject::tr(
@@ -661,12 +1065,38 @@ SystemTrace ImportChromeTraceEventFormat(const QString &path)
     trace.warnings << QObject::tr("%1 events could not be parsed and were skipped")
                           .arg(stats.malformed);
 
-  if(trace.series.isEmpty() && trace.frameBoundaries.isEmpty())
+  if(stats.missingDuration > 0)
+    trace.warnings << QObject::tr(
+        "%1 complete ('ph':'X') events had no 'dur', so they could not be drawn as spans")
+                          .arg(stats.missingDuration);
+
+  if(stats.unterminatedSpans > 0)
+    trace.warnings << QObject::tr(
+        "%1 end events had no matching begin event and were skipped")
+                          .arg(stats.unterminatedSpans);
+
+  if(closedUnterminated > 0)
+    trace.warnings << QObject::tr(
+        "%1 spans were still open at the end of the trace and were closed at the last recorded "
+        "timestamp: their true end is unknown")
+                          .arg(closedUnterminated);
+
+  if(stats.reversedSpans > 0)
+    trace.warnings << QObject::tr("%1 spans ended before they began and were skipped")
+                          .arg(stats.reversedSpans);
+
+  if(stats.metadataUnusable > 0)
+    trace.warnings << QObject::tr(
+        "%1 metadata records carried no usable name or no id, so lanes keep their id captions")
+                          .arg(stats.metadataUnusable);
+
+  if(trace.series.isEmpty() && trace.frameBoundaries.isEmpty() && trace.SpanCount() == 0)
   {
     trace.warnings << QObject::tr(
-        "Trace contained no counter events and no frame boundaries, so nothing can be correlated "
-        "(%1 events examined)")
-                          .arg(stats.events);
+        "Trace contained no counter events, spans and no frame boundaries, so nothing can be "
+        "correlated (%1 events examined, %2 phases not drawn)")
+                          .arg(stats.events)
+                          .arg(stats.unmappedPhase);
     return trace;
   }
 

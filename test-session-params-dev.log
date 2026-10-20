@@ -1,0 +1,6 @@
+Filters: [mcp][session]
+===============================================================================
+All tests passed (59 assertions in 6 test cases)
+
+Checking python binding consistency.
+Python bindings are consistent.

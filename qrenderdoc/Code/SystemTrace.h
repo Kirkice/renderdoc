@@ -86,6 +86,59 @@ struct TraceFrameBoundary
   double timeSec = 0.0;
 };
 
+// A span (slice): something that occupied an interval on exactly one track lane, e.g. a scheduled
+// thread slice or a GPU workload. Counters are sampled measurements and cannot express "this ran
+// from t0 to t1", so they are kept as TraceSeries rather than as spans.
+//
+// Without this the import would lose every non-counter event, and a track view is impossible: SDP's
+// trace panel is a lane-per-thread/context timeline of exactly these spans.
+struct TraceSpan
+{
+  double beginSec = 0.0;
+  double endSec = 0.0;
+  QString name;
+  // The source's own category (`cat`), kept verbatim. May be empty.
+  QString category;
+  // Nesting depth inside its lane, 0-based, derived from interval containment. The renderer uses it
+  // to stack nested spans instead of inventing a layout.
+  int depth = 0;
+  // The event's `args` fields, already formatted "key = value" with the source's own values
+  // (numbers formatted as JSON rendered them). Display-only: nothing parses these back.
+  QStringList fields;
+};
+
+// What a lane represents. Only used for ordering and for the header caption; it never changes how
+// spans are drawn.
+enum class TraceTrackKind
+{
+  // A metric series, drawn as a curve rather than as spans.
+  Counter,
+  // A host thread, identified by the trace's own pid/tid pair.
+  Thread,
+  // A lane whose events carried no thread identity.
+  Process,
+};
+
+// One lane of the timeline. `group` is the owning process (or the trace's own grouping) and is
+// rendered as a group header, mirroring how SDP groups tracks per process/device.
+struct TraceTrack
+{
+  // Resolved display name: the trace's declared thread_name / process_name when it declared one,
+  // otherwise a truthful placeholder naming the id. Never invented.
+  QString name;
+  // Owning process display name, or empty when the trace declared no process identity.
+  QString group;
+  TraceTrackKind kind = TraceTrackKind::Thread;
+  // -1 when the source declared no value. Kept as the source's own integer, never remapped.
+  int pid = -1;
+  int tid = -1;
+  QVector<TraceSpan> spans;
+  // Index into SystemTrace::series for a Counter lane, or -1 for a span lane.
+  int counterSeries = -1;
+  // Display unit for a counter lane, copied from the series so the header can show it.
+  QString unit;
+};
+
 // How confidently trace time could be related to RenderDoc time.
 enum class ClockDomainConfidence
 {
@@ -115,8 +168,8 @@ struct ClockDomainAlignment
   QString description;
 };
 
-// The outcome of importing a trace. `valid` is true only when at least one series or frame
-// boundary was parsed. `warnings` records everything that was missing, ambiguous or dropped,
+// The outcome of importing a trace. `valid` is true only when at least one series, one span or one
+// frame boundary was parsed. `warnings` records everything that was missing, ambiguous or dropped,
 // rather than silently discarding it.
 struct SystemTrace
 {
@@ -128,12 +181,17 @@ struct SystemTrace
   bool sharedClock = false;
   QVector<TraceSeries> series;
   QVector<TraceFrameBoundary> frameBoundaries;
+  // The lane structure of the trace, in display order: counter lanes first, then process/thread
+  // lanes. Empty when the source carried only counters.
+  QVector<TraceTrack> tracks;
   QStringList warnings;
   bool valid = false;
 
   const TraceSeries *FindSeries(const QString &name) const;
-  // Total trace span in seconds; 0 when empty.
+  // Total trace span in seconds; 0 when empty. Spans and series both contribute.
   double SpanSec() const;
+  // Number of spans across all tracks, for status reporting.
+  int SpanCount() const;
 };
 
 // Parse a trace in the documented JSON-lines interchange. This function never throws and never
@@ -153,12 +211,17 @@ SystemTrace ImportSystemTraceJsonLines(const QString &path);
 // What is mapped, and what is deliberately not:
 //   * `ph:"C"` counter events become TraceSeries, one per (category, name) pair. Chrome counters
 //     carry no unit, so `TraceSeries::unit` stays empty rather than being invented.
+//   * `ph:"X"` (complete span, using `dur`) and `ph:"B"`/`ph:"E"` (begin/end pair) events become
+//     TraceSpans on a per-(pid,tid) lane, so the panel can render a lane timeline. Their `args`
+//     are retained verbatim as display fields. Nesting depth comes from interval containment.
+//   * `ph:"M"` metadata is used only for `thread_name` / `process_name`, which supply lane captions.
+//     The names are applied after the whole file is read, because metadata may follow its spans.
 //   * Frame boundaries come only from events carrying an explicit frame index - an integer in
 //     `args` under `frameNumber` / `frame_number` / `frame`, or a slice name of the form
 //     `Frame <n>`. When the second form is used a warning records that the index came from the
 //     slice name, so the provenance stays visible.
-//   * Slice durations (`ph:"X"` with `dur`) are not turned into samples: they are spans, not
-//     measurements, and flattening them into a series would misrepresent the trace.
+//   * Instant / async / flow events are counted as unmapped rather than being coerced into a span,
+//     because they have no duration to draw.
 //
 // Timestamps are microseconds in the device's own clock domain, so samples are converted to
 // seconds and `sharedClock` stays false; correlation must derive the offset from frame boundaries.

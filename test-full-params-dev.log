@@ -1,0 +1,34 @@
+Filters: [mcp]
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+QRenderDoc is a Catch v2.13.7 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+MCP loopback transport smoke test
+-------------------------------------------------------------------------------
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPTests.cpp(938)
+...............................................................................
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPTests.cpp(989): FAILED:
+  REQUIRE_FALSE( sessionHeader.isEmpty() )
+with expansion:
+  !true
+
+-------------------------------------------------------------------------------
+Environment diagnostics provide recovery advice and platform degradation
+-------------------------------------------------------------------------------
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPTests.cpp(3418)
+...............................................................................
+
+H:\tmp\renderdoc\qrenderdoc\Code\AI\MCPTests.cpp(3438): FAILED:
+  CHECK( unhealthy.limitations.contains(([]() noexcept -> QString { enum { Size = sizeof(u"" "Configured Mali Offline Compiler executable is unavailable.")/2 - 1 }; static const QStaticStringData<Size> qstring_literal = { { { { -1 } }, Size, 0, 0, sizeof(QStringData) }, u"" "Configured Mali Offline Compiler executable is unavailable." }; QStringDataPtr holder = { qstring_literal.data_ptr() }; const QString qstring_literal_temp(holder); return qstring_literal_temp; }())) )
+with expansion:
+  false
+
+===============================================================================
+test cases:   62 |   60 passed | 2 failed
+assertions: 1938 | 1936 passed | 2 failed
+
+Checking python binding consistency.
+Python bindings are consistent.

@@ -26,7 +26,7 @@
 
 #include <functional>
 
-#include <QDialog>
+#include <QFrame>
 #include <QString>
 #include <QVector>
 
@@ -41,47 +41,52 @@ class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
 class QTableWidget;
+class QToolButton;
+
+// Navigation modes of the Trace view. These are the three modes Snapdragon Profiler documents for
+// its Trace window ("Select, Pan, and Zoom ... switched via the toolbar buttons or the shortcut
+// keys 1, 2, and 3"), kept with the same meaning and the same key bindings.
+enum class TraceNavMode
+{
+  // Drag a lasso to select elements; the selection is described in the element pane.
+  Select = 0,
+  // Drag to shift the visible window. The default.
+  Pan = 1,
+  // Drag a region to zoom into it.
+  Zoom = 2,
+};
 
 // Forward-declared: implemented entirely in the .cpp as a plain QWidget with a custom paintEvent.
-// There is no QtCharts dependency in this project, so the overlay is drawn by hand.
-class SystemTraceChart;
-
-// Everything the chart needs to draw a single correlated frame. It is passed by value on each
-// rebuild, so the chart never holds a reference into the viewer's mutable state.
-struct SystemTraceChartData
-{
-  // Non-owning; must outlive the chart's current data (it is the viewer's imported trace).
-  const SystemTrace *trace = NULL;
-  // Flattened actions for the shown frame, with timeSec relative to the frame origin.
-  QVector<TraceActionRef> actions;
-  ClockDomainAlignment alignment;
-  // True when the two clock domains were related, so the action overlay is meaningful.
-  bool aligned = false;
-  // Trace-time window occupied by the shown frame (only meaningful when aligned).
-  double frameStartSec = 0.0;
-  double frameEndSec = 0.0;
-  uint32_t frameNumber = 0;
-  // Event to draw as the highlighted interval, or 0 when nothing is selected.
-  uint32_t highlightEvent = 0;
-  // False when no capture is open. The series are then drawn on their own time scale with no frame
-  // overlay, instead of the chart claiming that nothing has been imported.
-  bool captureLoaded = true;
-};
+// There is no QtCharts dependency in this project, so the lane rows, the shared ruler, the calipers
+// and the frame overlay are all drawn by hand.
+//
+// The widget's data is declared in the .cpp rather than here: it carries the drawn state the viewer
+// only ever hands over wholesale, so keeping it out of this header avoids a struct that no other
+// translation unit can use.
+class SystemTraceTimeline;
 
 // P1-4: frame-interior counter x system-level trace correlation view.
 //
-// A self-contained, modeless tool window (like MaliAnalysisDialog) that overlays an imported
-// system trace (bandwidth / occupancy curves) against a single RenderDoc frame's timeline, and
-// lets the user click a draw / dispatch to both select it in RenderDoc and read the system
-// counters at that instant.
+// A dockable tool panel (the same shape as StatisticsViewer / TimelineBar) that overlays an
+// imported system trace (bandwidth / occupancy curves) against a single RenderDoc frame's
+// timeline, and lets the user click a draw / dispatch to both select it in RenderDoc and read
+// the system counters at that instant.
+//
+// It is a panel rather than a floating dialog so it docks into the main window as a tab and
+// participates in the saved layout. Ownership stays with the caller (MainWindow) for exactly
+// that reason: QFrame panels are reused and hidden, never self-deleting, otherwise the dock
+// would be left holding a dangling tab.
 //
 // It is a capture viewer: it follows the current frame and event, and clears itself when the
 // capture closes. It never modifies the capture and never bundles a vendor binary.
-class SystemTraceViewer : public QDialog, public ICaptureViewer
+class SystemTraceViewer : public QFrame, public ICaptureViewer
 {
 public:
   explicit SystemTraceViewer(ICaptureContext &ctx, QWidget *parent = 0);
   ~SystemTraceViewer();
+
+  // The handle the tool window manager docks. Returns this, since the whole panel is one widget.
+  QWidget *Widget() { return this; }
 
   // ICaptureViewer
   void OnCaptureLoaded() override;
@@ -105,7 +110,20 @@ private:
 
   // Kick off the (async) event-timing fetch and, once it arrives, correlate + redraw.
   void rebuild();
-  bool traceUsable() const { return m_Trace.valid && !m_Trace.series.isEmpty(); }
+  // A trace is usable when it carries anything the timeline can draw: counter samples, spans, or
+  // frame boundaries. Requiring series alone would reject a slice-only trace, which is the shape a
+  // plain systrace capture has.
+  bool traceUsable() const
+  {
+    return m_Trace.valid && (!m_Trace.series.isEmpty() || m_Trace.SpanCount() > 0 ||
+                             !m_Trace.frameBoundaries.isEmpty());
+  }
+
+  // Switch the timeline's navigation mode and keep the toolbar buttons in step, whichever drove
+  // the change (a button or a 1/2/3 shortcut inside the timeline).
+  void setNavMode(TraceNavMode mode);
+  // Describe the span selected in the timeline in the element pane.
+  void showElementFields(const TraceSpan &span, const QString &trackName);
 
   void updateHighlight();
   // Draw the imported series without any frame overlay (no capture open, so nothing to align to).
@@ -131,7 +149,16 @@ private:
   QLabel *m_Selection = NULL;
   QLabel *m_Status = NULL;
   QListWidget *m_Warnings = NULL;
-  SystemTraceChart *m_Chart = NULL;
+  SystemTraceTimeline *m_Chart = NULL;
+
+  // Element pane: the fields of whatever span was last selected on the timeline. This is the job
+  // SDP's Inspector does for a selected trace element.
+  QTableWidget *m_Element = NULL;
+  QLabel *m_ElementCaption = NULL;
+
+  QToolButton *m_ModeSelect = NULL;
+  QToolButton *m_ModePan = NULL;
+  QToolButton *m_ModeZoom = NULL;
 
   // Device capture controls. The log is kept visible after the capture finishes because every
   // command the driver issued and every tool result is recorded there: a failure is diagnosable

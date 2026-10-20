@@ -23,9 +23,20 @@
  ******************************************************************************/
 
 #include "MCPQueryAdapter.h"
+#include "MCPResourceTools.h"
+#include "MCPSessionTools.h"
+#include "MCPCompatibilityTools.h"
+#include "MCPDiagnostics.h"
+#include "MCPExternalTools.h"
+#include <QSaveFile>
+#include <QFileInfo>
+#include <QDir>
+#include <QStandardPaths>
+#include <QSysInfo>
 
 #include <QJsonArray>
 #include <QWidget>
+#include <QCoreApplication>
 #include <exception>
 #include <string.h>
 
@@ -43,6 +54,10 @@
 #include <algorithm>
 
 #include "Code/AI/MCPAnalysisModel.h"
+#include "MCPComparisonTools.h"
+#include <cmath>
+#include <mutex>
+#include <thread>
 
 namespace MCP
 {
@@ -110,6 +125,13 @@ static QJsonObject ActionToJson(const ActionDescription &a, const SDFile &sdfile
 namespace
 {
 QJsonObject FilterFields(const QJsonObject &j, const QStringList &fields);
+// Capture-local numeric map key, never a cross-capture identity.
+uint64_t ResIdValue(ResourceId id)
+{
+  uint64_t v = 0;
+  memcpy(&v, &id, sizeof(v));
+  return v;
+}
 }
 
 //
@@ -282,7 +304,8 @@ QString VarTypeName(VarType t)
 // QueryAdapter
 // ---------------------------------------------------------------------------
 
-QueryAdapter::QueryAdapter(ICaptureContext *ctx) : m_Ctx(ctx)
+QueryAdapter::QueryAdapter(ICaptureContext *ctx)
+    : m_Ctx(ctx), m_ApplicationSession(CreateNativeCaptureSession())
 {
 }
 
@@ -292,17 +315,36 @@ T QueryAdapter::ReadOnUIThread(const std::function<T()> &fn) const
   if(m_Ctx == NULL)
     return fn();
 
-  IMainWindow *main = m_Ctx->GetMainWindow();
-  QWidget *w = main ? main->Widget() : NULL;
-
-  // Nothing to marshal onto (headless/unit-test context) or already on the UI
-  // thread: just run it.
-  if(w == NULL || GUIInvoke::onUIThread())
+  // Do not read GetMainWindow() off-thread merely to find the UI dispatcher.
+  if(GUIInvoke::onUIThread())
     return fn();
 
   T ret = T();
-  GUIInvoke::blockcall(w, [&]() { ret = fn(); });
+  GUIInvoke::blockcall(QCoreApplication::instance(), [&]() { ret = fn(); });
   return ret;
+}
+
+ToolResult QueryAdapter::WithCaptureUI(
+    CallContext &call, const std::function<ToolResult(ICaptureContext &)> &fn)
+{
+  // GetMainWindow() itself is CaptureContext access, so marshal using the
+  // application object rather than obtaining a widget off the calling worker.
+  if(m_Ctx == NULL)
+    return ToolResult::Failure(Error(ErrorCode::Unsupported, "No native capture context"));
+  ToolResult result;
+  auto invoke = [&]() {
+    if(call.IsCancelled())
+      result = ToolResult::Failure(Error(ErrorCode::Cancelled, "Request cancelled"));
+    else if(call.IsExpired())
+      result = ToolResult::Failure(Error(ErrorCode::Timeout, "Request deadline passed"));
+    else
+      result = fn(*m_Ctx);
+  };
+  if(GUIInvoke::onUIThread())
+    invoke();
+  else
+    GUIInvoke::blockcall(QCoreApplication::instance(), invoke);
+  return result;
 }
 
 CaptureSnapshot QueryAdapter::Snapshot()
@@ -525,9 +567,10 @@ ToolResult QueryAdapter::Modifications()
   });
 }
 
-ToolResult QueryAdapter::RootActions(uint32_t eventId, int maxCount, const QStringList &fields)
+ToolResult QueryAdapter::RootActions(uint32_t eventId, int maxCount, const QStringList &fields,
+                                    const EventBrowserFilterOptions &filters)
 {
-  return ReadOnUIThread<ToolResult>([this, eventId, maxCount, fields]() -> ToolResult {
+  return ReadOnUIThread<ToolResult>([this, eventId, maxCount, fields, filters]() -> ToolResult {
     if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
       return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
     if(m_Ctx->IsCaptureLoading())
@@ -537,13 +580,13 @@ ToolResult QueryAdapter::RootActions(uint32_t eventId, int maxCount, const QStri
     QJsonArray arr;
     int emitted = 0;
 
-    const rdcarray<ActionDescription> &roots = m_Ctx->CurRootActions();
-    for(const ActionDescription &a : roots)
+    rdcarray<ActionDescription> selected;
+    for(const ActionDescription &a : m_Ctx->CurRootActions())
+      if(eventId == 0 || a.eventId == eventId) selected.push_back(a);
+    const rdcarray<ActionDescription> filtered = FilterActionTree(selected, sdfile, filters, true);
+    for(const ActionDescription &a : filtered)
     {
-      if(eventId != 0 && a.eventId != eventId)
-        continue;
-      if(maxCount > 0 && emitted >= maxCount)
-        break;
+      if(maxCount > 0 && emitted >= maxCount) break;
       arr.append(ActionToJson(a, sdfile, fields, 0));
       emitted++;
     }
@@ -551,6 +594,9 @@ ToolResult QueryAdapter::RootActions(uint32_t eventId, int maxCount, const QStri
     QJsonObject j;
     j[QStringLiteral("actions")] = arr;
     j[QStringLiteral("count")] = emitted;
+    j[QStringLiteral("totalMatched")] = double(filtered.size());
+    j[QStringLiteral("truncated")] = size_t(emitted) < filtered.size();
+    j[QStringLiteral("filters")] = EventBrowserFilterOptionsToJson(filters);
     if(eventId != 0)
       j[QStringLiteral("eventId")] = double(eventId);
     return ToolResult::Success(j);
@@ -576,13 +622,18 @@ ToolResult QueryAdapter::Action(uint32_t eventId, const QStringList &fields)
   });
 }
 
-ToolResult QueryAdapter::Resources(const QString &typeFilter, int maxCount, const QStringList &fields)
+ToolResult QueryAdapter::Resources(const QString &typeFilter, int maxCount, const QStringList &fields,
+                                  int offset)
 {
-  return ReadOnUIThread<ToolResult>([this, typeFilter, maxCount, fields]() -> ToolResult {
+  return ReadOnUIThread<ToolResult>([this, typeFilter, maxCount, fields, offset]() -> ToolResult {
     if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
       return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
     if(m_Ctx->IsCaptureLoading())
       return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+    if(offset < 0 || maxCount < 0)
+      return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Invalid resource page"));
+    if(!m_Ctx->Config().MCP_AllowSensitiveData)
+      return ToolResult::Failure(Error(ErrorCode::Unsupported, "Resources require MCP_AllowSensitiveData"));
 
     const rdcarray<ResourceDescription> &resources = m_Ctx->GetResources();
     QJsonArray arr;
@@ -592,23 +643,17 @@ ToolResult QueryAdapter::Resources(const QString &typeFilter, int maxCount, cons
       const QString typeName = detail::ResourceTypeName(r.type);
       if(!typeFilter.isEmpty() && typeName.compare(typeFilter, Qt::CaseInsensitive) != 0)
         continue;
-      if(maxCount > 0 && emitted >= maxCount)
-        break;
-
       QJsonObject j;
       j[QStringLiteral("resourceId")] = ResourceIdToString(r.resourceId);
       j[QStringLiteral("id")] = double(0);    // reserved: numeric id is in the string form
       j[QStringLiteral("name")] = FromRdcStr(m_Ctx->GetResourceName(r.resourceId));
       j[QStringLiteral("type")] = typeName;
       j[QStringLiteral("autogeneratedName")] = r.autogeneratedName;
-      arr.append(j);
+      arr.append(FilterFields(j, fields));
       emitted++;
     }
 
-    QJsonObject j;
-    j[QStringLiteral("resources")] = arr;
-    j[QStringLiteral("count")] = emitted;
-    j[QStringLiteral("total")] = (int)resources.size();
+    QJsonObject j = ResourcePage(arr, maxCount > 0 ? maxCount : qMax(1, emitted), offset);
     if(!typeFilter.isEmpty())
       j[QStringLiteral("typeFilter")] = typeFilter;
     return ToolResult::Success(j);
@@ -911,35 +956,6 @@ bool ReadTextFile(const QString &path, QByteArray &out)
   return true;
 }
 
-bool WriteTextFile(const QString &path, const QByteArray &contents)
-{
-  if(path.isEmpty())
-    return false;
-
-  QFile f(path);
-  if(!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
-    return false;
-
-  const qint64 written = f.write(contents);
-  f.close();
-  return written == (qint64)contents.size();
-}
-
-// Bookmark mutations touch the native bookmark list, which the UI owns, so they
-// run on the UI thread exactly like the snapshot reads do.
-void OnUIThread(ICaptureContext *ctx, const std::function<void()> &fn)
-{
-  if(ctx == NULL)
-    return;
-
-  IMainWindow *main = ctx->GetMainWindow();
-  QWidget *w = main ? main->Widget() : NULL;
-
-  if(w == NULL || GUIInvoke::onUIThread())
-    fn();
-  else
-    GUIInvoke::blockcall(w, [&]() { fn(); });
-}
 }    // anonymous namespace
 
 BookmarkSidecar QueryAdapter::ReadBookmarkSidecar()
@@ -1009,183 +1025,229 @@ ToolResult QueryAdapter::BookmarksExtended(int maxCount, const QStringList &fiel
   return ToolResult::Success(FilterFields(j, fields), BookmarkSidecarToText(capped));
 }
 
-ToolResult QueryAdapter::UpdateBookmark(const BookmarkTaggedItem &item, uint32_t eventId,
-                                        CallContext &call)
+ToolResult QueryAdapter::BookmarkTool(const QString &operation, const QJsonObject &args,
+                                      CallContext &call)
 {
-  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
-    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
-  if(call.IsCancelled())
-    return ToolResult::Failure(Error(ErrorCode::Cancelled, "request cancelled"));
-
-  const QString capturePath = CapturePathFor(m_Ctx);
-  const QString sidecarPath = BookmarkSidecarPath(capturePath);
-  if(sidecarPath.isEmpty())
-    return ToolResult::Failure(Error(
-        ErrorCode::Unsupported,
-        QStringLiteral("capture has no local filename; extended bookmarks cannot be stored")));
-
-  // An explicit id wins; otherwise derive a stable one from the event so repeated
-  // updates to the same event overwrite rather than piling up (the plugin's
-  // "one bookmark per event" behaviour).
-  const uint32_t eid = eventId != 0 ? eventId : item.eventId.toUInt();
-
-  BookmarkTaggedItem record = item;
-  if(record.id.isEmpty())
-    record.id = QStringLiteral("bm-%1").arg(eid);
-  if(record.eventId.isEmpty() && eid != 0)
-    record.eventId = QString::number(eid);
-
-  BookmarkFile existing;
-  QByteArray json;
-  if(ReadTextFile(sidecarPath, json))
-    existing = ParseBookmarkFile(json);
-  if(existing.capturePath.isEmpty())
-    existing.capturePath = capturePath;
-  if(existing.version == 0)
-    existing.version = 1;
-
-  QVector<BookmarkTaggedItem> incoming;
-  incoming.append(record);
-  const BookmarkFile merged = UpsertBookmarkRecords(existing, incoming);
-
-  if(!WriteTextFile(sidecarPath, SerializeBookmarkFile(merged)))
-    return ToolResult::Failure(Error(ErrorCode::InternalError,
-                                     QStringLiteral("failed to write the bookmark sidecar")));
-
-  // Mirror the stored note into the native bookmark list so the Event Browser
-  // strip shows it and it joins the normal "unsaved modifications" flow. A note
-  // with no event id cannot be a native bookmark, so it stays sidecar-only.
-  if(eid != 0)
-  {
-    QString note = record.note;
-    for(const BookmarkTaggedItem &it : merged.items)
+  ToolResult authorized = AuthorizeBookmarkMutation(operation, args);
+  if(!authorized.ok) return authorized;
+  if(m_Ctx == NULL)
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "No capture is loaded"));
+  return WithCaptureUI(call, [&](ICaptureContext &ctx) -> ToolResult {
+    if(!ctx.IsCaptureLoaded())
+      return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "No capture is loaded"));
+    if(ctx.IsCaptureLoading())
+      return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "Capture is loading"));
+    if(!ctx.IsCaptureLocal())
+      return ToolResult::Failure(Error(ErrorCode::Unsupported, "Remote captures have no local bookmark sidecar"));
+    const QString capturePath = CapturePathFor(&ctx);
+    const QString path = BookmarkSidecarPath(capturePath);
+    if(path.isEmpty())
+      return ToolResult::Failure(Error(ErrorCode::Unsupported, "Capture has no local filename"));
+    if(QFileInfo(path).isSymLink())
+      return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Refusing to replace a symlink bookmark sidecar"));
+    BookmarkFile file;
+    if(QFileInfo::exists(path))
     {
-      if(it.id == record.id)
+      QFile input(path);
+      if(!input.open(QIODevice::ReadOnly))
+        return ToolResult::Failure(Error(ErrorCode::InternalError, input.errorString()));
+      const QByteArray bytes = input.readAll();
+      if(input.error() != QFileDevice::NoError)
+        return ToolResult::Failure(Error(ErrorCode::InternalError, input.errorString()));
+      QJsonParseError error;
+      const QJsonDocument document = QJsonDocument::fromJson(bytes, &error);
+      if(error.error != QJsonParseError::NoError || !document.isObject() ||
+         !document.object().value(QStringLiteral("bookmarks")).isArray() ||
+         document.object().value(QStringLiteral("version")).toDouble(-1) != 1)
+        return ToolResult::Failure(Error(ErrorCode::InvalidParams,
+            "Malformed or unsupported bookmark sidecar; refusing to discard existing evidence"));
+      const QJsonObject root = document.object();
+      for(auto it = root.begin(); it != root.end(); ++it)
+        if(it.key() != QStringLiteral("version") && it.key() != QStringLiteral("capturePath") && it.key() != QStringLiteral("bookmarks"))
+          return ToolResult::Failure(Error(ErrorCode::Unsupported, "Unknown sidecar metadata; refusing to discard it"));
+      if(root.contains(QStringLiteral("capturePath")) && !root.value(QStringLiteral("capturePath")).isString())
+        return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Malformed sidecar capture path"));
+      // Reject rows the tolerant read parser would discard or reinterpret.
+      for(const QJsonValue &row : document.object().value(QStringLiteral("bookmarks")).toArray())
       {
-        note = it.note;
-        break;
+        if(!row.isObject())
+          return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Malformed bookmark row"));
+        const QJsonObject object = row.toObject();
+        const QStringList knownFields = {QStringLiteral("id"), QStringLiteral("eventId"), QStringLiteral("title"),
+            QStringLiteral("note"), QStringLiteral("conclusion"), QStringLiteral("analysis"),
+            QStringLiteral("screenshotPath"), QStringLiteral("confidence")};
+        for(auto it = object.begin(); it != object.end(); ++it)
+          if(!knownFields.contains(it.key()))
+            return ToolResult::Failure(Error(ErrorCode::Unsupported, "Unknown bookmark metadata; refusing to discard it"));
+        if(object.contains(QStringLiteral("confidence")))
+        {
+          const QString confidence = object.value(QStringLiteral("confidence")).toString();
+          if(confidence != QStringLiteral("confirmed") && confidence != QStringLiteral("inferred") &&
+             confidence != QStringLiteral("toVerify") && confidence != QStringLiteral("low"))
+            return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Unknown stored bookmark confidence"));
+        }
+        for(const char *key : {"id", "title", "note", "conclusion", "analysis", "screenshotPath", "confidence"})
+          if(object.contains(QString::fromLatin1(key)) && !object.value(QString::fromLatin1(key)).isString())
+            return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Malformed bookmark text field"));
+        if(object.contains(QStringLiteral("eventId")))
+        {
+          const QJsonValue event = object.value(QStringLiteral("eventId"));
+          bool ok = false;
+          const qulonglong n = event.isString() ? event.toString().toULongLong(&ok) : 0;
+          if(event.isString() ? (!event.toString().isEmpty() && (!ok || n > UINT32_MAX)) :
+             (!event.isDouble() || event.toDouble() < 0 || event.toDouble() > double(UINT32_MAX) ||
+              double(uint32_t(event.toDouble())) != event.toDouble()))
+            return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Malformed bookmark event identity"));
+        }
       }
+      file = ParseBookmarkFile(bytes);
+      if(file.items.size() != document.object().value(QStringLiteral("bookmarks")).toArray().size())
+        return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Bookmark parser would discard existing evidence"));
+      QSet<QString> identities;
+      for(const BookmarkTaggedItem &item : file.items)
+      {
+        if(!item.id.isEmpty() && identities.contains(item.id))
+          return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Duplicate bookmark sidecar identities"));
+        if(!item.id.isEmpty()) identities.insert(item.id);
+      }
+      if(!file.capturePath.isEmpty() && QDir::cleanPath(file.capturePath) != QDir::cleanPath(capturePath))
+        return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Sidecar belongs to another capture"));
     }
-
-    const QByteArray utf8 = note.toUtf8();
-    EventBookmark mark(eid);
-    mark.text = rdcstr(utf8.constData(), (size_t)utf8.size());
-
-    OnUIThread(m_Ctx, [this, mark]() { m_Ctx->SetBookmark(mark); });
-  }
-
-  QJsonObject j;
-  j[QStringLiteral("bookmark")] = BookmarkTaggedItemToJson(record);
-  j[QStringLiteral("eventId")] = double(eid);
-  j[QStringLiteral("sidecarPath")] = sidecarPath;
-  j[QStringLiteral("count")] = merged.items.size();
-  return ToolResult::Success(j, QStringLiteral("Stored investigation bookmark %1.").arg(record.id));
+    // The native note is authoritative; materialize old native-only bookmarks so
+    // ids returned by list can also be used to update/remove them.
+    file.items = MergeBookmarkSidecar(ctx.GetBookmarks(), file);
+    file.capturePath = capturePath;
+    BookmarkMutationPlan plan;
+    ToolResult result = PlanBookmarkMutation(file, args, operation, ctx.CurEvent(), plan);
+    if(!result.ok) return result;
+    if(plan.newEventId && ctx.GetAction(plan.newEventId) == NULL)
+      return ToolResult::Failure(Error(ErrorCode::InvalidParams, "Bookmark event is not in this capture"));
+    const QByteArray bytes = SerializeBookmarkFile(plan.file);
+    QSaveFile output(path);
+    output.setDirectWriteFallback(false);
+    if(!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size())
+      return ToolResult::Failure(Error(ErrorCode::InternalError, output.errorString()));
+    if(call.IsCancelled() || call.IsExpired())
+    {
+      output.cancelWriting();
+      return ToolResult::Failure(Error(call.IsCancelled() ? ErrorCode::Cancelled : ErrorCode::Timeout,
+                                       "Bookmark mutation interrupted before commit"));
+    }
+    if(!output.commit())
+      return ToolResult::Failure(Error(ErrorCode::InternalError, output.errorString()));
+    // Once committed, finish native mirroring even if cancellation arrives: do
+    // not report a cancellation while leaving the two representations divergent.
+    if(plan.oldEventId && (plan.removed || plan.oldEventId != plan.newEventId))
+      ctx.RemoveBookmark(plan.oldEventId);
+    if(!plan.removed && plan.newEventId)
+    {
+      EventBookmark mark(plan.newEventId);
+      const QByteArray note = plan.record.note.toUtf8();
+      mark.text = rdcstr(note.constData(), size_t(note.size()));
+      ctx.SetBookmark(mark);
+    }
+    result.structured[QStringLiteral("sidecarPath")] = path;
+    result.structured[QStringLiteral("count")] = plan.file.items.size();
+    result.structured[QStringLiteral("eventId")] = double(plan.removed ? plan.oldEventId : plan.newEventId);
+    result.text = QStringLiteral("%1 investigation bookmark %2").arg(operation, plan.record.id);
+    return result;
+  });
 }
 
-ToolResult QueryAdapter::RemoveBookmark(const QString &bookmarkId, uint32_t eventId,
-                                        CallContext &call)
+ToolResult QueryAdapter::DiagnoseEnvironment(const QString &format, CallContext &call)
 {
-  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
-    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
-  if(call.IsCancelled())
-    return ToolResult::Failure(Error(ErrorCode::Cancelled, "request cancelled"));
-
-  const QString capturePath = CapturePathFor(m_Ctx);
-  const QString sidecarPath = BookmarkSidecarPath(capturePath);
-  if(sidecarPath.isEmpty())
-    return ToolResult::Failure(Error(
-        ErrorCode::Unsupported,
-        QStringLiteral("capture has no local filename; extended bookmarks cannot be stored")));
-
-  BookmarkFile file;
-  QByteArray json;
-  if(ReadTextFile(sidecarPath, json))
-    file = ParseBookmarkFile(json);
-
-  QString effectiveId = bookmarkId;
-  uint32_t effectiveEid = eventId;
-
-  // Fill in whichever of id/event id was not supplied, using the other. This lets
-  // a caller remove by the stable id or by the event, whichever it has to hand.
-  if(effectiveId.isEmpty() && effectiveEid != 0)
+  if(call.IsCancelled() || call.IsExpired())
+    return ToolResult::Failure(Error(call.IsCancelled() ? ErrorCode::Cancelled : ErrorCode::Timeout,
+                                     "Environment diagnosis interrupted"));
+  EnvironmentDiagnosticInput input;
+  input.platform = QSysInfo::productType();
+#if defined(RENDERDOC_PLATFORM_WIN32)
+  input.platform = QStringLiteral("windows");
+#elif defined(RENDERDOC_PLATFORM_APPLE)
+  input.platform = QStringLiteral("macos");
+#else
+  input.platform = QStringLiteral("linux");
+#endif
+  ReadOnUIThread<bool>([&]() {
+    if(!m_Ctx) return false;
+    input.serverEnabled = m_Ctx->Config().MCP_Enabled;
+    input.serverPort = m_Ctx->Config().MCP_Port;
+    input.sensitiveDataAllowed = m_Ctx->Config().MCP_AllowSensitiveData;
+    input.maliConfiguredPath = FromRdcStr(m_Ctx->Config().MCP_MaliCompilerPath);
+    return true;
+  });
+  input.maliResolvedExecutable = ResolveMaliExecutablePath(input.maliConfiguredPath);
+  input.maliExecutableExists = QFileInfo(input.maliResolvedExecutable).isFile();
+  if(input.maliConfiguredPath.isEmpty() && input.maliExecutableExists)
+    input.maliConfiguredPath = input.maliResolvedExecutable;
+  input.supportsMali = input.platform == QStringLiteral("windows") || input.platform == QStringLiteral("linux");
+  QJsonObject report = EnvironmentDiagnosticReportToJson(BuildEnvironmentDiagnosticReport(input));
+  if(!m_Ctx)
   {
-    for(const BookmarkTaggedItem &it : file.items)
+    QJsonArray observedChecks;
+    for(const QJsonValue &value : report.value(QStringLiteral("checks")).toArray())
     {
-      bool ok = false;
-      if(it.eventId.toUInt(&ok) == effectiveEid && ok)
-      {
-        effectiveId = it.id;
-        break;
-      }
+      const QString id = value.toObject().value(QStringLiteral("id")).toString();
+      if(id != QStringLiteral("mcp.server") && id != QStringLiteral("mcp.sensitiveData"))
+        observedChecks.append(value);
     }
+    observedChecks.append(QJsonObject{{QStringLiteral("id"), QStringLiteral("mcp.configuration")},
+        {QStringLiteral("severity"), QStringLiteral("info")},
+        {QStringLiteral("available"), QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("summary"), QStringLiteral("Native CaptureContext configuration was not observed.")}});
+    report[QStringLiteral("checks")] = observedChecks;
   }
-  else if(effectiveEid == 0 && !effectiveId.isEmpty())
-  {
-    for(const BookmarkTaggedItem &it : file.items)
-    {
-      if(it.id == effectiveId)
-      {
-        effectiveEid = it.eventId.toUInt();
-        break;
-      }
-    }
-  }
-
-  if(effectiveId.isEmpty() && effectiveEid == 0)
-    return ToolResult::Failure(Error(ErrorCode::InvalidParams,
-                                     QStringLiteral("a bookmark id or an event id is required")));
-
-  int removedIndex = -1;
-  uint32_t removedEventId = 0;
-  for(int i = 0; i < file.items.size(); i++)
-  {
-    bool match = false;
-
-    if(!effectiveId.isEmpty() && file.items[i].id == effectiveId)
-      match = true;
-    else if(effectiveEid != 0)
-    {
-      bool ok = false;
-      match = (file.items[i].eventId.toUInt(&ok) == effectiveEid) && ok;
-    }
-
-    if(match)
-    {
-      removedIndex = i;
-      removedEventId = file.items[i].eventId.toUInt();
-      break;
-    }
-  }
-
-  if(removedIndex >= 0)
-  {
-    file.items.remove(removedIndex);
-    if(!WriteTextFile(sidecarPath, SerializeBookmarkFile(file)))
-      return ToolResult::Failure(Error(ErrorCode::InternalError,
-                                       QStringLiteral("failed to write the bookmark sidecar")));
-  }
-
-  // Drop the native bookmark as well so the strip and the sidecar stay in step.
-  // A sidecar-only record has no native counterpart, which is not an error.
-  if(removedEventId == 0)
-    removedEventId = effectiveEid;
-  if(removedEventId != 0)
-    OnUIThread(m_Ctx, [this, removedEventId]() { m_Ctx->RemoveBookmark(removedEventId); });
-
-  QJsonObject j;
-  j[QStringLiteral("id")] = effectiveId;
-  j[QStringLiteral("eventId")] = double(effectiveEid);
-  j[QStringLiteral("removed")] = removedIndex >= 0;
-  j[QStringLiteral("sidecarPath")] = sidecarPath;
-  j[QStringLiteral("count")] = file.items.size();
-  return ToolResult::Success(j, QStringLiteral("Removed investigation bookmark %1.")
-                                       .arg(effectiveId.isEmpty() ? QString::number(effectiveEid)
-                                                                  : effectiveId));
+  report[QStringLiteral("capture")] = SnapshotToJson(Snapshot());
+  report[QStringLiteral("session")] = ApplicationSessionState();
+  report[QStringLiteral("native")] = QJsonObject{{QStringLiteral("inProcess"), true},
+      {QStringLiteral("applicationPath"), QCoreApplication::applicationFilePath()},
+      {QStringLiteral("version"), QCoreApplication::applicationVersion()},
+      {QStringLiteral("architecture"), QSysInfo::currentCpuArchitecture()},
+      {QStringLiteral("captureContextAvailable"), m_Ctx != NULL}};
+  report[QStringLiteral("mcp")] = QJsonObject{{QStringLiteral("serverName"), QString::fromLatin1(kServerName)},
+      {QStringLiteral("supportedProtocolVersion"), QString::fromLatin1(kLatestProtocolVersion)},
+      {QStringLiteral("enabledConfiguration"), m_Ctx ? QJsonValue(input.serverEnabled) : QJsonValue(QJsonValue::Null)},
+      {QStringLiteral("configuredPort"), m_Ctx ? QJsonValue(input.serverPort) : QJsonValue(QJsonValue::Null)},
+      {QStringLiteral("listenerState"), QStringLiteral("unknown: configuration is not listener status")},
+      {QStringLiteral("transportSession"), QStringLiteral("not observed; application session is separate")}};
+  rdcarray<rdcstr> protocols;
+  RENDERDOC_GetSupportedDeviceProtocols(&protocols);
+  QJsonArray protocolNames;
+  for(const rdcstr &protocol : protocols) protocolNames.append(FromRdcStr(protocol));
+  report[QStringLiteral("deviceProtocols")] = protocolNames;
+  QString sdk;
+  const SDObject *sdkSetting = RENDERDOC_GetConfigSetting("Android.SDKDirPath");
+  if(sdkSetting) sdk = FromRdcStr(sdkSetting->AsString());
+#if defined(RENDERDOC_PLATFORM_WIN32)
+  const QString adbName = QStringLiteral("adb.exe");
+#else
+  const QString adbName = QStringLiteral("adb");
+#endif
+  const QString configuredAdb = sdk.isEmpty() ? QString() : QDir(sdk).filePath(QStringLiteral("platform-tools/") + adbName);
+  const QString pathAdb = QStandardPaths::findExecutable(adbName);
+  report[QStringLiteral("adb")] = QJsonObject{{QStringLiteral("configuredSDKPath"), sdk},
+      {QStringLiteral("configuredExecutable"), configuredAdb},
+      {QStringLiteral("configuredExecutableExists"), !configuredAdb.isEmpty() && QFileInfo(configuredAdb).isFile()},
+      {QStringLiteral("pathExecutable"), pathAdb},
+      {QStringLiteral("protocolAvailable"), protocolNames.contains(QStringLiteral("adb")) || protocolNames.contains(QStringLiteral("android"))},
+      {QStringLiteral("devices"), QJsonValue(QJsonValue::Null)},
+      {QStringLiteral("deviceCoverage"), QStringLiteral("not probed: enumeration may start adb or alter device forwarding")}};
+  QJsonArray limitations = report.value(QStringLiteral("limitations")).toArray();
+  limitations.append(QStringLiteral("No adb process, device enumeration, installation, forwarding, environment mutation or target connection was performed. File presence does not establish adb readiness or device connectivity."));
+  if(!m_Ctx) limitations.append(QStringLiteral("No native CaptureContext is bound; configuration is unavailable, not observed disabled."));
+  report[QStringLiteral("limitations")] = limitations;
+  const QString fmt = format == QStringLiteral("markdown") ? format : QStringLiteral("json");
+  QString content = QString::fromUtf8(QJsonDocument(report).toJson(QJsonDocument::Indented));
+  if(fmt == QStringLiteral("markdown"))
+    content = QStringLiteral("# Native RenderDoc Environment Diagnosis\n\nObserved runtime, configuration and application session; device readiness is not inferred.\n\n```json\n") + content + QStringLiteral("```\n");
+  return ToolResult::Success(QJsonObject{{QStringLiteral("report"), report},
+      {QStringLiteral("format"), fmt}, {QStringLiteral("content"), content}}, content);
 }
 
 ToolResult QueryAdapter::PipelineSnapshot(const QStringList &fields)
 {
-  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+  const CaptureSnapshot snapshot = Snapshot();
+  if(!snapshot.hasCapture)
     return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
 
   // The three sub-queries each marshal onto the UI thread themselves, so this
@@ -1217,14 +1279,18 @@ ToolResult QueryAdapter::PipelineSnapshot(const QStringList &fields)
 ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
                                        const std::function<ToolResult(IReplayController &)> &fn)
 {
-  if(m_Ctx == NULL)
-    return ToolResult::Failure(Error(ErrorCode::InternalError, "no capture context"));
-
-  if(!m_Ctx->IsCaptureLoaded())
-    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
-
-  if(m_Ctx->IsCaptureLoading())
-    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+  IReplayManager *replayManager = NULL;
+  const ToolResult ready = ReadOnUIThread<ToolResult>([this, &replayManager]() {
+    if(m_Ctx == NULL)
+      return ToolResult::Failure(Error(ErrorCode::InternalError, "no capture context"));
+    if(!m_Ctx->IsCaptureLoaded())
+      return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+    if(m_Ctx->IsCaptureLoading())
+      return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+    replayManager = &m_Ctx->Replay();
+    return ToolResult::Success(QJsonObject());
+  });
+  if(!ready.ok) return ready;
 
   if(call.IsCancelled())
     return ToolResult::Failure(Error(ErrorCode::Cancelled, "tool call cancelled"));
@@ -1240,7 +1306,7 @@ ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
   // resource contents from the final inspected event.
   const uint32_t restoreEvent = Snapshot().currentEvent;
 
-  IReplayManager &replay = m_Ctx->Replay();
+  IReplayManager &replay = *replayManager;
 
   // Without a capture access handle the replay thread isn't ready for the switch
   // to a new capture; surface this distinctly from a plain "no capture".
@@ -1336,6 +1402,181 @@ ToolResult QueryAdapter::DispatchBlock(const char *toolName, CallContext &call,
   return result;
 }
 
+ToolResult QueryAdapter::DispatchBlock(
+    const char *toolName, const QString &capturePath, CallContext &call,
+    const std::function<ToolResult(IReplayController &)> &fn)
+{
+  if(capturePath.trimmed().isEmpty())
+    return ToolResult::Failure(Error(ErrorCode::InvalidParams, "capture path is empty"));
+  ToolResult result = ToolResult::Failure(Error(ErrorCode::ReplayUnavailable,
+                                                "independent replay was not invoked"));
+  // No ReplayManager or UI state is borrowed. All controller calls, including
+  // creation and destruction, run on this worker. Joining preserves callback
+  // lifetime even when a driver exceeds the soft deadline.
+  std::thread worker([&]() {
+    static std::mutex independentReplay;
+    std::lock_guard<std::mutex> lock(independentReplay);
+    struct OwnedReplay
+    {
+      ICaptureFile *file = NULL;
+      IReplayController *controller = NULL;
+      ~OwnedReplay()
+      {
+        if(controller) controller->Shutdown();
+        if(file) file->Shutdown();
+      }
+    } owned;
+    try
+    {
+      if(call.IsCancelled() || call.IsExpired())
+      {
+        result = ToolResult::Failure(Error(call.IsCancelled() ? ErrorCode::Cancelled : ErrorCode::Timeout,
+                                           "independent replay cancelled or deadline exceeded"));
+        return;
+      }
+      owned.file = RENDERDOC_OpenCaptureFile();
+      if(!owned.file)
+      {
+        result = ToolResult::Failure(Error(ErrorCode::ReplayUnavailable,
+            QStringLiteral("RENDERDOC_OpenCaptureFile returned no capture file"),
+            QJsonObject{{QStringLiteral("path"), capturePath},
+                        {QStringLiteral("operation"), QStringLiteral("RENDERDOC_OpenCaptureFile")}}));
+        return;
+      }
+      const ResultDetails opened = owned.file->OpenFile(rdcstr(capturePath.toUtf8().constData()), rdcstr(), NULL);
+      if(!opened.OK())
+      {
+        result = ToolResult::Failure(Error(ErrorCode::ReplayUnavailable,
+            QStringLiteral("OpenFile failed: %1").arg(FromRdcStr(opened.Message())),
+            QJsonObject{{QStringLiteral("path"), capturePath},
+                        {QStringLiteral("operation"), QStringLiteral("OpenFile")},
+                        {QStringLiteral("resultCode"), int(opened.code)}}));
+        return;
+      }
+      if(owned.file->LocalReplaySupport() != ReplaySupport::Supported)
+      {
+        result = ToolResult::Failure(Error(ErrorCode::Unsupported,
+            QStringLiteral("local replay is unsupported for %1").arg(capturePath)));
+        return;
+      }
+      const auto replay = owned.file->OpenCapture(ReplayOptions(), NULL);
+      owned.controller = replay.second;
+      if(!replay.first.OK() || !owned.controller)
+      {
+        result = ToolResult::Failure(Error(ErrorCode::ReplayUnavailable,
+            QStringLiteral("OpenCapture failed: %1").arg(FromRdcStr(replay.first.Message())),
+            QJsonObject{{QStringLiteral("path"), capturePath},
+                        {QStringLiteral("operation"), QStringLiteral("OpenCapture")},
+                        {QStringLiteral("resultCode"), int(replay.first.code)}}));
+        return;
+      }
+      if(!call.IsCancelled() && !call.IsExpired())
+        result = fn(*owned.controller);
+    }
+    catch(const std::exception &e)
+    {
+      result = ToolResult::Failure(Error(ErrorCode::InternalError,
+          QStringLiteral("%1 independent replay threw: %2")
+              .arg(QString::fromUtf8(toolName)).arg(QString::fromUtf8(e.what()))));
+    }
+    catch(...)
+    {
+      result = ToolResult::Failure(Error(ErrorCode::InternalError,
+                                          "independent replay threw an unknown exception"));
+    }
+  });
+  worker.join();
+  if(call.IsCancelled())
+    return ToolResult::Failure(Error(ErrorCode::Cancelled, "independent replay cancelled"));
+  if(call.IsExpired())
+    return ToolResult::Failure(Error(ErrorCode::Timeout, "independent replay deadline exceeded"));
+  return result;
+}
+
+ToolResult QueryAdapter::ReadComparisonSnapshot(const QString &path, bool fetchTimings,
+                                                CallContext &call, ComparisonSnapshot &out)
+{
+  ComparisonSnapshot snapshot;
+  ToolResult result = DispatchBlock("capture comparison", path, call,
+      [&](IReplayController &replay) -> ToolResult {
+    CanonicalCapture canonical;
+    canonical.capturePath = path;
+    canonical.api = detail::GraphicsAPIName(replay.GetAPIProperties().pipelineType);
+    canonical.frameNumber = replay.GetFrameInfo().frameNumber;
+    canonical.unifyKey = UnifyCaptureKey(canonical.api, path);
+    rdcarray<EventNode> nodes;
+    FlattenEvents(replay.GetRootActions(), replay.GetStructuredFile(), nodes);
+    BuildCanonicalEvents(nodes, canonical);
+    QHash<quint64, TextureDescription> textures;
+    QHash<quint64, BufferDescription> buffers;
+    for(const auto &t : replay.GetTextures()) textures.insert(ResIdValue(t.resourceId), t);
+    for(const auto &b : replay.GetBuffers()) buffers.insert(ResIdValue(b.resourceId), b);
+    for(const ResourceDescription &resource : replay.GetResources())
+    {
+      if(call.IsCancelled() || call.IsExpired())
+        return ToolResult::Failure(Error(call.IsCancelled() ? ErrorCode::Cancelled : ErrorCode::Timeout,
+                                          "snapshot collection interrupted"));
+      ResourceMemoryRow row;
+      row.resourceId = resource.resourceId;
+      row.name = resource.autogeneratedName ? QString() : FromRdcStr(resource.name);
+      row.type = detail::ResourceTypeName(resource.type);
+      const quint64 id = ResIdValue(resource.resourceId);
+      bool known = false;
+      if(textures.contains(id))
+      {
+        const TextureDescription &t = textures[id];
+        row.byteSize = t.byteSize;
+        row.width = t.width; row.height = t.height; row.depth = t.depth;
+        row.mips = t.mips; row.arraySize = t.arraysize;
+        row.format = detail::ResourceFormatString(t.format);
+        row.textureType = detail::TextureTypeName(t.type);
+        known = true;
+      }
+      else if(buffers.contains(id))
+      {
+        row.byteSize = buffers[id].length;
+        known = true;
+      }
+      snapshot.resources.push_back(row);
+      snapshot.bytesKnown.push_back(known);
+    }
+    BuildCanonicalResources(snapshot.resources, canonical);
+    snapshot.regression = BuildRegressionSnapshot(canonical);
+    // Canonical occurrence ordinals are useful display keys, not identity proof.
+    // Use marker path + normalized label; duplicate labels stay ambiguous.
+    for(RegressionEventEntry &event : snapshot.regression.events)
+      event.key = QString::number(int(event.kind)) + QStringLiteral("|") + event.label;
+    for(int i = 0; i < snapshot.regression.resources.size(); ++i)
+    {
+      RegressionResourceEntry &entry = snapshot.regression.resources[i];
+      entry.key = snapshot.resources[i].name.isEmpty() ? QString() :
+          entry.type + QStringLiteral("|") + NormalizeName(snapshot.resources[i].name);
+      entry.confidence = Confidence::Low;
+    }
+    snapshot.timingStatus = QStringLiteral("not requested");
+    if(fetchTimings)
+    {
+      snapshot.timingStatus = QStringLiteral("EventGPUDuration unsupported");
+      for(GPUCounter counter : replay.EnumerateCounters())
+      {
+        if(counter != GPUCounter::EventGPUDuration) continue;
+        snapshot.timingStatus = QStringLiteral("no valid EventGPUDuration samples");
+        for(const CounterResult &sample : replay.FetchCounters({GPUCounter::EventGPUDuration}))
+          if(sample.counter == GPUCounter::EventGPUDuration && std::isfinite(sample.value.d * 1000000.0) &&
+             sample.value.d >= 0.0 && canonical.events.contains(sample.eventId))
+            snapshot.timings.insert(sample.eventId, sample.value.d * 1000000.0);
+        if(!snapshot.timings.isEmpty()) snapshot.timingStatus = QStringLiteral("measured");
+        break;
+      }
+      ApplyEventTimings(snapshot.regression, snapshot.timings);
+      snapshot.regression.timingAvailable = !snapshot.timings.isEmpty();
+    }
+    return ToolResult::Success(QJsonObject());
+  });
+  if(result.ok) out = snapshot;
+  return result;
+}
+
 ToolResult QueryAdapter::DispatchBlockVoid(const char *toolName, CallContext &call,
                                            const std::function<void(IReplayController &)> &fn,
                                            const QJsonObject &structured)
@@ -1364,15 +1605,6 @@ bool QueryAdapter::ReplayAvailable() const
 
 namespace
 {
-// Raw numeric ResourceId value, so a UI-thread map can be keyed without
-// depending on ResourceId's ordering operators.
-uint64_t ResIdValue(ResourceId id)
-{
-  uint64_t v = 0;
-  memcpy(&v, &id, sizeof(v));
-  return v;
-}
-
 // Action *bit* names, emitted as a "|"-joined string so it matches the flag
 // strings the plugin produced (e.g. "Drawcall|Instanced"). The numeric value is
 // emitted alongside it so clients can also bit-test.
@@ -2270,6 +2502,23 @@ QHash<quint32, double> FetchEventTimings(IReplayController &replay)
 }
 }    // namespace
 
+ToolResult QueryAdapter::ActionTimings(const ActionTimingOptions &options, CallContext &call)
+{
+  return DispatchBlock("renderdoc_getActionTimings", call,
+      [options](IReplayController &replay) -> ToolResult {
+    bool supported = false;
+    for(GPUCounter counter : replay.EnumerateCounters())
+      supported |= counter == GPUCounter::EventGPUDuration;
+    if(!supported)
+      return ToolResult::Success(QJsonObject{{QStringLiteral("supported"), false},
+          {QStringLiteral("available"), false},
+          {QStringLiteral("reason"), QStringLiteral("EventGPUDuration counter is unavailable for this capture")},
+          {QStringLiteral("timings"), QJsonArray()}, {QStringLiteral("slowest"), QJsonArray()}});
+    return SelectActionTimings(replay.GetRootActions(), replay.GetStructuredFile(),
+                               FetchEventTimings(replay), options);
+  });
+}
+
 ToolResult QueryAdapter::GetPassGraph(bool includeResources, CallContext &call,
                                       const QStringList &fields)
 {
@@ -2649,8 +2898,18 @@ ToolResult QueryAdapter::FindDrawsByResourceId(ResourceId id, CallContext &call,
 }
 
 ToolResult QueryAdapter::TraceResourceUsage(ResourceId id, CallContext &call,
-                                            const QStringList &fields)
+                                            const QStringList &fields, int maxEvents)
 {
+  return WithCaptureUI(call, [&](ICaptureContext &ctx) -> ToolResult {
+  if(!ctx.Config().MCP_AllowSensitiveData)
+    return ToolResult::Failure(Error(ErrorCode::Unsupported, "Resource usage requires MCP_AllowSensitiveData"));
+  if(!ctx.IsCaptureLoaded())
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "No capture is loaded"));
+  if(ctx.IsCaptureLoading())
+    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "Capture is loading"));
+  // Zero is the internal omission sentinel; the public parser rejects explicit zero.
+  if(maxEvents < 0 || maxEvents > 500)
+    return ToolResult::Failure(Error(ErrorCode::InvalidParams, "maxEvents must be omitted or between 1 and 500"));
   const quint64 want = ResIdValue(id);
   const CaptureSnapshot snap = Snapshot();
 
@@ -2667,7 +2926,7 @@ ToolResult QueryAdapter::TraceResourceUsage(ResourceId id, CallContext &call,
   });
 
   return DispatchBlock("renderdoc_traceResourceUsage", call,
-                       [want, id, names, snap](IReplayController &replay) -> ToolResult {
+                       [want, id, names, snap, maxEvents, fields, &call](IReplayController &replay) -> ToolResult {
     const SDFile &sdfile = replay.GetStructuredFile();
 
     rdcarray<const ActionDescription *> leaves;
@@ -2676,12 +2935,19 @@ ToolResult QueryAdapter::TraceResourceUsage(ResourceId id, CallContext &call,
     QJsonArray producers;    // events that write the resource
     QJsonArray consumers;    // events that read/sample the resource
     QJsonArray accesses;
+    int examined = 0, failed = 0;
 
     for(const ActionDescription *leaf : leaves)
     {
+      if(call.IsCancelled()) return ToolResult::Failure(Error(ErrorCode::Cancelled, "Resource usage cancelled"));
+      if(call.IsExpired()) return ToolResult::Failure(Error(ErrorCode::Timeout, "Resource usage deadline exceeded"));
       LeafFacts facts;
+      examined++;
       if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
+      {
+        failed++;
         continue;
+      }
 
       const bool renders = VecHasId(facts.renderTargetIds, want);
       const bool samples = VecHasId(facts.sampledIds, want);
@@ -2726,7 +2992,12 @@ ToolResult QueryAdapter::TraceResourceUsage(ResourceId id, CallContext &call,
     j[QStringLiteral("consumerCount")] = consumers.size();
     j[QStringLiteral("accesses")] = accesses;
     j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
-    return ToolResult::Success(j);
+    j[QStringLiteral("coverage")] = QStringLiteral("Leaf-action pipeline binding scan; bindings are not proof of executed GPU access");
+    j[QStringLiteral("examinedEvents")] = examined;
+    j[QStringLiteral("failedEvents")] = failed;
+    j[QStringLiteral("complete")] = failed == 0;
+    return ToolResult::Success(FilterFields(LimitResourceUsage(j, maxEvents), fields));
+  });
   });
 }
 
@@ -3180,7 +3451,7 @@ ToolResult QueryAdapter::ResourceMemoryAudit(int limit, CallContext &call,
 }
 
 ToolResult QueryAdapter::ResourceLifetime(int limit, CallContext &call,
-                                          const QStringList &fields)
+                                          const QStringList &fields, ResourceId selectedResource)
 {
   const int cap = limit > 0 ? limit : 100;
 
@@ -3190,8 +3461,15 @@ ToolResult QueryAdapter::ResourceLifetime(int limit, CallContext &call,
     return SnapshotResources(m_Ctx);
   });
 
+  const quint64 selected = ResIdValue(selectedResource);
+  if(selected != 0)
+  {
+    bool found = false;
+    for(const ResourceLite &res : resources) if(res.id == selected) found = true;
+    if(!found) return ToolResult::Failure(Error(ErrorCode::InvalidParams, "ResourceId not found in capture"));
+  }
   return DispatchBlock("renderdoc_resourceLifetime", call,
-                       [resources, cap, fields, snap](IReplayController &replay) -> ToolResult {
+                       [resources, cap, fields, snap, selected, &call](IReplayController &replay) -> ToolResult {
     const SDFile &sdfile = replay.GetStructuredFile();
 
     rdcarray<const ActionDescription *> leaves;
@@ -3208,6 +3486,8 @@ ToolResult QueryAdapter::ResourceLifetime(int limit, CallContext &call,
 
     for(const ActionDescription *leaf : leaves)
     {
+      if(call.IsCancelled()) return ToolResult::Failure(Error(ErrorCode::Cancelled, "Resource lifetime cancelled"));
+      if(call.IsExpired()) return ToolResult::Failure(Error(ErrorCode::Timeout, "Resource lifetime deadline exceeded"));
       LeafFacts facts;
       if(!ReadLeafFacts(replay, *leaf, sdfile, facts))
         continue;
@@ -3237,6 +3517,7 @@ ToolResult QueryAdapter::ResourceLifetime(int limit, CallContext &call,
     rows.reserve(resources.size());
     for(const ResourceLite &res : resources)
     {
+      if(selected != 0 && res.id != selected) continue;
       ResourceLifetimeRow row;
       row.resourceId = ResourceIdFromValue(res.id);
       row.name = res.name;
@@ -3268,6 +3549,8 @@ ToolResult QueryAdapter::ResourceLifetime(int limit, CallContext &call,
     result.rows = rows;
 
     QJsonObject j = FilterFields(ResourceLifetimeToJson(result), fields);
+    j[QStringLiteral("resourceId")] = selected != 0 ? QJsonValue(ResourceIdToString(ResourceIdFromValue(selected))) : QJsonValue(QJsonValue::Null);
+    j[QStringLiteral("limitation")] = QStringLiteral("First/last events describe observed pipeline-bound scope, not allocation/destruction lifetime. Indirect, copy and out-of-frame access may be absent.");
     j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
     return ToolResult::Success(j);
   });
@@ -3343,6 +3626,8 @@ ToolResult QueryAdapter::FindResourceLeaks(int limit, CallContext &call,
   const int cap = limit > 0 ? limit : 100;
 
   const CaptureSnapshot snap = Snapshot();
+  if(!snap.hasCapture)
+    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
   const QVector<ResourceLite> resources =
       ReadOnUIThread<QVector<ResourceLite>>([this]() -> QVector<ResourceLite> {
     return SnapshotResources(m_Ctx);
@@ -3670,12 +3955,19 @@ static PerformanceReport BuildPerformanceReport(IReplayController &replay,
 }
 
 ToolResult QueryAdapter::GeneratePerformanceReport(int limit, bool includePipeline, bool includeMesh,
-                                                  CallContext &call, const QStringList &fields)
+                                                  CallContext &call, const QStringList &fields,
+                                                  const QString &format)
 {
-  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
-    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
-  if(m_Ctx->IsCaptureLoading())
-    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+  if(!format.isEmpty() && format != QStringLiteral("json") && format != QStringLiteral("markdown"))
+    return ToolResult::Failure(Error(ErrorCode::InvalidParams, "format must be json or markdown"));
+  const ToolResult ready = ReadOnUIThread<ToolResult>([this]() {
+    if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+      return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+    if(m_Ctx->IsCaptureLoading())
+      return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+    return ToolResult::Success(QJsonObject());
+  });
+  if(!ready.ok) return ready;
 
   const int cap = limit > 200 ? 200 : (limit > 0 ? limit : 20);
 
@@ -3687,12 +3979,23 @@ ToolResult QueryAdapter::GeneratePerformanceReport(int limit, bool includePipeli
 
   return DispatchBlock(
       "renderdoc_generatePerformanceReport", call,
-      [cap, includePipeline, includeMesh, snap, resources, fields](IReplayController &replay)
+      [cap, includePipeline, includeMesh, snap, resources, fields, format](IReplayController &replay)
           -> ToolResult {
         const PerformanceReport report =
             BuildPerformanceReport(replay, snap, resources, cap, includePipeline, includeMesh);
 
-        QJsonObject j = FilterFields(PerformanceReportToJson(report), fields);
+        const QJsonObject reportJson = PerformanceReportToJson(report);
+        QJsonObject j = FilterFields(reportJson, fields);
+        // Keep the legacy top-level report keys. Rendering always uses the full report,
+        // never a fields projection which could silently create an empty output file.
+        if(!format.isEmpty())
+        {
+          j[QStringLiteral("format")] = format;
+          j[QStringLiteral("report")] = reportJson;
+          j[QStringLiteral("content")] = format == QStringLiteral("json")
+              ? QString::fromUtf8(QJsonDocument(reportJson).toJson(QJsonDocument::Indented))
+              : PerformanceReportToMarkdown(report);
+        }
         j[QStringLiteral("snapshot")] = SnapshotToJson(snap);
         return ToolResult::Success(j);
       });
@@ -3748,9 +4051,10 @@ ToolResult QueryAdapter::BuildInvestigationReport(const QString &format, int lim
                                                   bool includeResources, CallContext &call,
                                                   const QStringList &fields)
 {
-  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+  const CaptureSnapshot snap = Snapshot();
+  if(!snap.hasCapture)
     return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
-  if(m_Ctx->IsCaptureLoading())
+  if(snap.loading)
     return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
 
   const QString fmt =
@@ -3758,8 +4062,6 @@ ToolResult QueryAdapter::BuildInvestigationReport(const QString &format, int lim
                                                                       : QStringLiteral("markdown");
   const int cap = limit > 200 ? 200 : (limit > 0 ? limit : 20);
   const QString generatedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-
-  const CaptureSnapshot snap = Snapshot();
 
   // P1-8 bookmarks. This degrades gracefully (available == false with a reason)
   // when the capture is not open locally, it never fails the whole report.
@@ -3889,10 +4191,14 @@ static EventBrowserContext BuildEventBrowserContextImpl(IReplayController &repla
 ToolResult QueryAdapter::BuildEventBrowserContext(const EventBrowserFilterOptions &options, int cap,
                                                   CallContext &call, const QStringList &fields)
 {
-  if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
-    return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
-  if(m_Ctx->IsCaptureLoading())
-    return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+  const ToolResult ready = ReadOnUIThread<ToolResult>([this]() {
+    if(m_Ctx == NULL || !m_Ctx->IsCaptureLoaded())
+      return ToolResult::Failure(Error(ErrorCode::NoCaptureLoaded, "no capture is loaded"));
+    if(m_Ctx->IsCaptureLoading())
+      return ToolResult::Failure(Error(ErrorCode::CaptureBusy, "capture is still loading"));
+    return ToolResult::Success(QJsonObject());
+  });
+  if(!ready.ok) return ready;
 
   const int clampedCap = cap > 2000 ? 2000 : (cap > 0 ? cap : 500);
 

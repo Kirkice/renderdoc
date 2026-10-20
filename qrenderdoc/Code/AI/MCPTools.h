@@ -67,6 +67,9 @@ QString AddressModeName(AddressMode a);
 QString VarTypeName(VarType t);
 }    // namespace detail
 
+// Legacy resource reference shape, shared by resource-based query tools.
+QJsonObject ResourceRef(ResourceId id);
+
 // Registers every core read-only tool into `registry`. `adapter` must outlive the
 // registry's use (both live for the lifetime of the MCP server). Registration is
 // idempotent per process because it happens once at server startup.

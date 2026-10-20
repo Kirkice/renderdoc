@@ -29,6 +29,8 @@
 #include <QPair>
 #include <QSet>
 #include <algorithm>
+#include <cmath>
+#include <functional>
 #include <string.h>
 #include "MCPQueryAdapter.h"
 #include "MCPTypes.h"
@@ -1183,51 +1185,247 @@ bool IsEmptyOperation(const ActionDescription &action)
          action.numInstances == 0;
 }
 
-// Recursive depth-first filter walk. Semantics mirror the plugin's
-// filterDrawCallsAdvanced: `ancestorMatch` carries the marker scope down, a node
-// that fails but has surviving descendants is elided while its descendants are
-// promoted, and when a markerFilter is set a node survives only if it is in scope
-// or a descendant matched. Because the result here is FLAT, a node that passes and
-// its (filtered) children are both emitted, in pre-order - exactly what flattening
-// the plugin's kept `{...node, children}` subtree would produce.
-static void FilterEventBrowserWalk(const rdcarray<ActionDescription> &list, const SDFile &sdfile,
-                                   const EventBrowserFilterOptions &options,
-                                   const QHash<quint32, double> &timings, bool ancestorMatch,
-                                   uint32_t depth, QVector<EventBrowserContextRow> &out,
-                                   EventBrowserFilterStats &stats)
+namespace
+{
+bool ParseUnsigned(const QJsonValue &v, uint32_t &out)
+{
+  const double n = v.toDouble(-1);
+  if(!v.isDouble() || !std::isfinite(n) || n < 0 || n > double(UINT32_MAX) || std::floor(n) != n)
+    return false;
+  out = uint32_t(n);
+  return true;
+}
+ToolResult InvalidFilter(const QString &key)
+{
+  return ToolResult::Failure(Error(ErrorCode::InvalidParams, key + QStringLiteral(" has an invalid value")));
+}
+rdcarray<ActionDescription> NameFilteredTree(const rdcarray<ActionDescription> &list,
+                                           const SDFile &sdfile, const QString &filter)
+{
+  rdcarray<ActionDescription> out;
+  for(const ActionDescription &a : list)
+  {
+    // The extension promotes every name hit, preserving the matched node's subtree.
+    // Descendant hits are also promoted, even when already inside a matching parent.
+    if(FromRdcStr(a.GetName(sdfile)).contains(filter, Qt::CaseInsensitive)) out.push_back(a);
+    for(const ActionDescription &child : NameFilteredTree(a.children, sdfile, filter))
+      out.push_back(child);
+  }
+  return out;
+}
+rdcarray<ActionDescription> AdvancedFilteredTree(const rdcarray<ActionDescription> &list,
+    const SDFile &sdfile, const EventBrowserFilterOptions &o, bool ancestorMatch)
+{
+  rdcarray<ActionDescription> out;
+  for(const ActionDescription &a : list)
+  {
+    const QString name = FromRdcStr(a.GetName(sdfile));
+    const bool inScope = ancestorMatch || (!o.markerFilter.isEmpty() && name.contains(o.markerFilter, Qt::CaseInsensitive));
+    rdcarray<ActionDescription> children = AdvancedFilteredTree(a.children, sdfile, o, inScope);
+    const bool keep = (!(o.hasEventIdMin || o.eventIdMin != 0) || a.eventId >= o.eventIdMin) &&
+        (!(o.hasEventIdMax || o.eventIdMax != 0) || a.eventId <= o.eventIdMax) &&
+        (!o.onlyDrawCalls || IsRealDrawCall(a.flags)) && (!o.excludeMarkers || !IsMarkerGroup(a)) &&
+        (!o.excludeDebugMarkers || !(IsMarkerGroup(a) && IsDebugMarkerName(name))) &&
+        (!o.excludeEmptyOperations || !IsEmptyOperation(a)) &&
+        (o.markerFilter.isEmpty() || inScope || !children.empty());
+    if(keep)
+    {
+      ActionDescription copy = a;
+      copy.children = children;
+      out.push_back(copy);
+    }
+    else for(const ActionDescription &child : children) out.push_back(child);
+  }
+  return out;
+}
+}
+
+ToolResult ParseEventBrowserFilters(const QJsonObject &args, EventBrowserFilterOptions &out)
+{
+  out = EventBrowserFilterOptions();
+  for(const char *key : {"filter", "markerFilter"})
+    if(args.contains(QString::fromLatin1(key)) && !args.value(QString::fromLatin1(key)).isString())
+      return InvalidFilter(QString::fromLatin1(key));
+  out.filter = args.value(QStringLiteral("filter")).toString();
+  out.markerFilter = args.value(QStringLiteral("markerFilter")).toString();
+  struct Boolean { const char *key; bool EventBrowserFilterOptions::*member; };
+  for(const Boolean &b : {Boolean{"excludeMarkers", &EventBrowserFilterOptions::excludeMarkers},
+      Boolean{"onlyDrawCalls", &EventBrowserFilterOptions::onlyDrawCalls},
+      Boolean{"excludeDebugMarkers", &EventBrowserFilterOptions::excludeDebugMarkers},
+      Boolean{"excludeEmptyOperations", &EventBrowserFilterOptions::excludeEmptyOperations},
+      Boolean{"sortByDuration", &EventBrowserFilterOptions::sortByDuration}})
+  {
+    const QString key = QString::fromLatin1(b.key);
+    if(args.contains(key) && !args.value(key).isBool()) return InvalidFilter(key);
+    out.*(b.member) = args.value(key).toBool();
+  }
+  out.hasEventIdMin = args.contains(QStringLiteral("eventIdMin"));
+  out.hasEventIdMax = args.contains(QStringLiteral("eventIdMax"));
+  if(out.hasEventIdMin && !ParseUnsigned(args.value(QStringLiteral("eventIdMin")), out.eventIdMin)) return InvalidFilter(QStringLiteral("eventIdMin"));
+  if(out.hasEventIdMax && !ParseUnsigned(args.value(QStringLiteral("eventIdMax")), out.eventIdMax)) return InvalidFilter(QStringLiteral("eventIdMax"));
+  return ToolResult::Success(QJsonObject());
+}
+
+rdcarray<ActionDescription> FilterActionTree(const rdcarray<ActionDescription> &roots,
+    const SDFile &sdfile, const EventBrowserFilterOptions &options, bool nameFirst)
+{
+  const rdcarray<ActionDescription> input = nameFirst && !options.filter.isEmpty()
+      ? NameFilteredTree(roots, sdfile, options.filter) : roots;
+  const rdcarray<ActionDescription> advanced = AdvancedFilteredTree(input, sdfile, options, false);
+  return !nameFirst && !options.filter.isEmpty()
+      ? NameFilteredTree(advanced, sdfile, options.filter) : advanced;
+}
+
+ToolResult ParseActionTimingOptions(const QJsonObject &args, ActionTimingOptions &out)
+{
+  out = ActionTimingOptions();
+  out.legacyCounters = !args.contains(QStringLiteral("eventIds")) &&
+      !args.contains(QStringLiteral("markerFilter")) && !args.contains(QStringLiteral("excludeMarkers")) &&
+      !args.contains(QStringLiteral("onlyDrawCalls")) && !args.contains(QStringLiteral("limit"));
+  if(args.contains(QStringLiteral("eventIds")))
+  {
+    if(!args.value(QStringLiteral("eventIds")).isArray()) return InvalidFilter(QStringLiteral("eventIds"));
+    for(const QJsonValue &v : args.value(QStringLiteral("eventIds")).toArray())
+    {
+      uint32_t eid = 0;
+      if(!ParseUnsigned(v, eid)) return InvalidFilter(QStringLiteral("eventIds"));
+      if(!out.eventIds.contains(eid)) out.eventIds.push_back(eid);
+    }
+  }
+  if(args.contains(QStringLiteral("eventId")) && !ParseUnsigned(args.value(QStringLiteral("eventId")), out.eventId)) return InvalidFilter(QStringLiteral("eventId"));
+  if(args.contains(QStringLiteral("markerFilter")) && !args.value(QStringLiteral("markerFilter")).isString()) return InvalidFilter(QStringLiteral("markerFilter"));
+  out.markerFilter = args.value(QStringLiteral("markerFilter")).toString();
+  if(args.contains(QStringLiteral("onlyDrawCalls")) && !args.value(QStringLiteral("onlyDrawCalls")).isBool()) return InvalidFilter(QStringLiteral("onlyDrawCalls"));
+  out.onlyDrawCalls = args.value(QStringLiteral("onlyDrawCalls")).toBool();
+  if(args.contains(QStringLiteral("excludeMarkers")))
+  {
+    if(!args.value(QStringLiteral("excludeMarkers")).isArray()) return InvalidFilter(QStringLiteral("excludeMarkers"));
+    for(const QJsonValue &v : args.value(QStringLiteral("excludeMarkers")).toArray())
+    {
+      if(!v.isString()) return InvalidFilter(QStringLiteral("excludeMarkers"));
+      out.excludeMarkers.push_back(v.toString());
+    }
+  }
+  for(const char *key : {"limit", "top"})
+  {
+    if(!args.contains(QString::fromLatin1(key))) continue;
+    uint32_t n = 0;
+    if(!ParseUnsigned(args.value(QString::fromLatin1(key)), n)) return InvalidFilter(QString::fromLatin1(key));
+    if(QString::fromLatin1(key) == QStringLiteral("limit")) out.limit = int(qBound(1U, n, 2000U));
+    else out.top = int(qBound(1U, n, 4096U));
+  }
+  return ToolResult::Success(QJsonObject());
+}
+
+ToolResult SelectActionTimings(const rdcarray<ActionDescription> &roots, const SDFile &sdfile,
+    const QHash<quint32, double> &timings, const ActionTimingOptions &options)
+{
+  // Old native calls return every measured counter (including zero-duration and
+  // non-leaf events), and top bounds only the separately ranked slowest list.
+  if(options.legacyCounters)
+  {
+    QVector<quint32> ids = timings.keys().toVector();
+    std::sort(ids.begin(), ids.end());
+    QJsonArray all, slowest;
+    QVector<QJsonObject> ranked;
+    for(quint32 eid : ids)
+    {
+      const double us = timings.value(eid);
+      if(!std::isfinite(us) || us < 0 || (options.eventId && options.eventId != eid)) continue;
+      const QJsonObject row{{QStringLiteral("eventId"), double(eid)},
+          {QStringLiteral("durationMicro"), us}};
+      all.append(row); ranked.append(row);
+    }
+    std::stable_sort(ranked.begin(), ranked.end(), [](const QJsonObject &a, const QJsonObject &b) {
+      return a.value(QStringLiteral("durationMicro")).toDouble() > b.value(QStringLiteral("durationMicro")).toDouble();
+    });
+    for(int i = 0; i < ranked.size() && i < options.top; i++) slowest.append(ranked[i]);
+    return ToolResult::Success(QJsonObject{{QStringLiteral("supported"), true},
+        {QStringLiteral("counter"), QStringLiteral("EventGPUDuration")},
+        {QStringLiteral("unit"), QStringLiteral("microseconds")},
+        {QStringLiteral("eventCount"), all.size()}, {QStringLiteral("timings"), all},
+        {QStringLiteral("slowest"), slowest}, {QStringLiteral("truncated"), false}});
+  }
+  QVector<QJsonObject> rows;
+  uint32_t examined = 0;
+  std::function<void(const rdcarray<ActionDescription> &, QStringList, bool)> visit;
+  visit = [&](const rdcarray<ActionDescription> &list, QStringList path, bool scope) {
+    for(const ActionDescription &a : list)
+    {
+      examined++;
+      const QString name = FromRdcStr(a.GetName(sdfile));
+      const bool marker = IsMarkerGroup(a);
+      QStringList nextPath = path;
+      if(marker) nextPath.push_back(name);
+      bool excluded = false;
+      for(const QString &needle : options.excludeMarkers)
+        for(const QString &part : nextPath)
+          excluded |= part.contains(needle, Qt::CaseInsensitive);
+      // Excluded marker subtrees are proven out of scope without visiting their leaves.
+      const bool nextScope = scope || (marker && name.contains(options.markerFilter, Qt::CaseInsensitive));
+      if(!a.children.empty())
+      {
+        if(!excluded) visit(a.children, nextPath, nextScope);
+        continue;
+      }
+      const double us = timings.value(a.eventId, -1.0);
+      if(excluded || !nextScope || (options.onlyDrawCalls && !IsRealDrawCall(a.flags)) ||
+         (options.eventId && options.eventId != a.eventId) ||
+         (!options.eventIds.isEmpty() && !options.eventIds.contains(a.eventId)) ||
+         !std::isfinite(us) || us <= 0) continue;
+      QJsonArray markerPath;
+      for(const QString &part : nextPath) markerPath.append(part);
+      rows.push_back(QJsonObject{{QStringLiteral("eventId"), double(a.eventId)},
+          {QStringLiteral("name"), name}, {QStringLiteral("flags"), ActionFlagNames(a.flags)},
+          {QStringLiteral("durationUs"), us}, {QStringLiteral("durationMicro"), us},
+          {QStringLiteral("durationMs"), us / 1000.0},
+          {QStringLiteral("markerPath"), markerPath},
+          {QStringLiteral("fullPath"), nextPath.isEmpty() ? name : nextPath.join(QStringLiteral(" -> ")) + QStringLiteral(" -> ") + name},
+          {QStringLiteral("numIndices"), double(a.numIndices)}, {QStringLiteral("numInstances"), double(a.numInstances)}});
+    }
+  };
+  visit(roots, QStringList(), options.markerFilter.isEmpty());
+  std::stable_sort(rows.begin(), rows.end(), [](const QJsonObject &a, const QJsonObject &b) {
+    return a.value(QStringLiteral("durationUs")).toDouble() > b.value(QStringLiteral("durationUs")).toDouble();
+  });
+  QJsonArray missing, returned, slowest;
+  for(uint32_t eid : options.eventIds)
+  {
+    bool found = false;
+    for(const QJsonObject &row : rows) found |= row.value(QStringLiteral("eventId")).toDouble() == double(eid);
+    if(!found) missing.append(double(eid));
+  }
+  for(int i = 0; i < rows.size(); ++i)
+  {
+    if(i < options.limit) returned.append(rows[i]);
+    if(i < options.top) slowest.append(rows[i]);
+  }
+  QJsonObject out{{QStringLiteral("supported"), true}, {QStringLiteral("available"), true},
+      {QStringLiteral("counter"), QStringLiteral("EventGPUDuration")}, {QStringLiteral("unit"), QStringLiteral("microseconds")},
+      {QStringLiteral("fetchedEventCount"), timings.size()}, {QStringLiteral("examinedEvents"), double(examined)},
+      {QStringLiteral("eventCount"), returned.size()}, {QStringLiteral("returned"), returned.size()},
+      {QStringLiteral("totalMatched"), rows.size()}, {QStringLiteral("truncated"), rows.size() > options.limit},
+      {QStringLiteral("timings"), returned}, {QStringLiteral("slowest"), slowest}};
+  if(!missing.isEmpty()) out[QStringLiteral("missingEventIds")] = missing;
+  return ToolResult::Success(out);
+}
+
+// Flatten the already-filtered tree. Predicate interpretation belongs exclusively
+// to AdvancedFilteredTree, not to the output representation.
+static void FlattenEventBrowserTree(const rdcarray<ActionDescription> &list, const SDFile &sdfile,
+                                   const QHash<quint32, double> &timings,
+                                   const QHash<quint32, uint32_t> &depths,
+                                   QVector<EventBrowserContextRow> &out)
 {
   for(const ActionDescription &a : list)
   {
-    stats.totalEvents++;
-
     const QString name = FromRdcStr(a.GetName(sdfile));
-    const bool selfMatch = !options.markerFilter.isEmpty() &&
-                           name.contains(options.markerFilter, Qt::CaseInsensitive);
-    const bool inScope = ancestorMatch || selfMatch;
-
-    // Children first: their outcome feeds this node's markerFilter verdict.
-    QVector<EventBrowserContextRow> childRows;
-    FilterEventBrowserWalk(a.children, sdfile, options, timings, inScope, depth + 1, childRows,
-                           stats);
-
-    const bool passesMin = options.eventIdMin == 0 || a.eventId >= options.eventIdMin;
-    const bool passesMax = options.eventIdMax == 0 || a.eventId <= options.eventIdMax;
-    const bool passesOnlyDraws = !options.onlyDrawCalls || IsRealDrawCall(a.flags);
-    const bool passesNoMarkers = !options.excludeMarkers || !IsMarkerGroup(a);
-    const bool passesNoDebug =
-        !options.excludeDebugMarkers || !(IsMarkerGroup(a) && IsDebugMarkerName(name));
-    const bool passesNoEmpty = !options.excludeEmptyOperations || !IsEmptyOperation(a);
-    const bool passesMarker =
-        options.markerFilter.isEmpty() || inScope || !childRows.isEmpty();
-
-    if(passesMin && passesMax && passesOnlyDraws && passesNoMarkers && passesNoDebug &&
-       passesNoEmpty && passesMarker)
     {
       EventBrowserContextRow row;
       row.eventId = a.eventId;
       row.name = name;
       row.flags = ActionFlagNames(a.flags);
-      row.depth = depth;
+      row.depth = depths.value(a.eventId);
       row.numIndices = a.numIndices;
       row.numInstances = a.numInstances;
       if(timings.contains((quint32)a.eventId))
@@ -1239,10 +1437,7 @@ static void FilterEventBrowserWalk(const rdcarray<ActionDescription> &list, cons
       out.push_back(row);
     }
 
-    // Emitted whether or not the node itself passed: when it passed these are its
-    // filtered children; when it failed they are the promoted survivors.
-    for(const EventBrowserContextRow &r : childRows)
-      out.push_back(r);
+    FlattenEventBrowserTree(a.children, sdfile, timings, depths, out);
   }
 }
 
@@ -1254,7 +1449,21 @@ void FilterEventBrowserActions(const rdcarray<ActionDescription> &roots, const S
 {
   const int before = out.size();
 
-  FilterEventBrowserWalk(roots, sdfile, options, timings, false, 0, out, stats);
+  // The shared tree owner applies both filters, including the extension's name-hit
+  // promotion semantics. Flatten without re-evaluating advanced predicates.
+  const rdcarray<ActionDescription> filtered = FilterActionTree(roots, sdfile, options);
+  QHash<quint32, uint32_t> depths;
+  std::function<void(const rdcarray<ActionDescription> &, uint32_t)> count =
+      [&](const rdcarray<ActionDescription> &list, uint32_t depth) {
+    for(const ActionDescription &a : list)
+    {
+      stats.totalEvents++;
+      depths.insert(a.eventId, depth);
+      count(a.children, depth + 1);
+    }
+  };
+  count(roots, 0);
+  FlattenEventBrowserTree(filtered, sdfile, timings, depths, out);
 
   // Hottest-first ordering over just the rows this call produced. Rows without a
   // measurement sort last so an untimed capture still yields a stable list.
@@ -1291,6 +1500,7 @@ QJsonObject EventBrowserContextRowToJson(const EventBrowserContextRow &row)
 QJsonObject EventBrowserFilterOptionsToJson(const EventBrowserFilterOptions &options)
 {
   QJsonObject j;
+  if(!options.filter.isEmpty()) j[QStringLiteral("filter")] = options.filter;
   if(!options.markerFilter.isEmpty())
     j[QStringLiteral("markerFilter")] = options.markerFilter;
   j[QStringLiteral("excludeMarkers")] = options.excludeMarkers;
@@ -1300,6 +1510,8 @@ QJsonObject EventBrowserFilterOptionsToJson(const EventBrowserFilterOptions &opt
   j[QStringLiteral("sortByDuration")] = options.sortByDuration;
   j[QStringLiteral("eventIdMin")] = double(options.eventIdMin);
   j[QStringLiteral("eventIdMax")] = double(options.eventIdMax);
+  j[QStringLiteral("hasEventIdMin")] = options.hasEventIdMin || options.eventIdMin != 0;
+  j[QStringLiteral("hasEventIdMax")] = options.hasEventIdMax || options.eventIdMax != 0;
   return j;
 }
 
@@ -1575,6 +1787,7 @@ QVector<BookmarkTaggedItem> MergeBookmarkSidecar(const rdcarray<EventBookmark> &
   for(const EventBookmark &b : bookmarks)
   {
     BookmarkTaggedItem item;
+    item.id = QStringLiteral("bm-%1").arg(b.eventId);
     item.eventId = QString::number((qulonglong)b.eventId);
     item.note = FromRdcStr(b.text);
     item.confidence = Confidence::Confirmed;
@@ -1589,7 +1802,7 @@ QVector<BookmarkTaggedItem> MergeBookmarkSidecar(const rdcarray<EventBookmark> &
       bool eidOk = false;
       const qulonglong sEid = s.eventId.toULongLong(&eidOk);
       const bool byEid = eidOk && sEid == (qulonglong)b.eventId;
-      const bool byNote = !s.note.isEmpty() && s.note == item.note;
+      const bool byNote = s.eventId.isEmpty() && !s.note.isEmpty() && s.note == item.note;
 
       if(!byEid && !byNote)
         continue;
@@ -1598,8 +1811,6 @@ QVector<BookmarkTaggedItem> MergeBookmarkSidecar(const rdcarray<EventBookmark> &
         item.id = s.id;
       if(!s.title.isEmpty())
         item.title = s.title;
-      if(item.note.isEmpty() && !s.note.isEmpty())
-        item.note = s.note;    // capture text empty: keep the sidecar's copy
       if(!s.conclusion.isEmpty())
         item.conclusion = s.conclusion;
       if(!s.analysis.isEmpty())
@@ -1623,59 +1834,6 @@ QVector<BookmarkTaggedItem> MergeBookmarkSidecar(const rdcarray<EventBookmark> &
   return merged;
 }
 
-// Field-wise upsert used by the write tool: a record whose id already exists is
-// updated in place, only non-empty incoming fields overwrite, so a partial update
-// never erases a field the caller did not mention (matching the plugin's
-// UpdateBookmarkTool spread-patch semantics). An unknown id is appended. Records
-// with an empty id are ignored here - the caller assigns ids before writing.
-BookmarkFile UpsertBookmarkRecords(const BookmarkFile &existing,
-                                   const QVector<BookmarkTaggedItem> &incoming)
-{
-  BookmarkFile result = existing;
-  if(result.version == 0)
-    result.version = 1;
-
-  for(const BookmarkTaggedItem &rec : incoming)
-  {
-    if(rec.id.isEmpty())
-      continue;
-
-    int found = -1;
-    for(int i = 0; i < result.items.size(); i++)
-    {
-      if(result.items[i].id == rec.id)
-      {
-        found = i;
-        break;
-      }
-    }
-
-    if(found < 0)
-    {
-      result.items.append(rec);
-      continue;
-    }
-
-    BookmarkTaggedItem &dst = result.items[found];
-    if(!rec.eventId.isEmpty())
-      dst.eventId = rec.eventId;
-    if(!rec.title.isEmpty())
-      dst.title = rec.title;
-    if(!rec.note.isEmpty())
-      dst.note = rec.note;
-    if(!rec.conclusion.isEmpty())
-      dst.conclusion = rec.conclusion;
-    if(!rec.analysis.isEmpty())
-      dst.analysis = rec.analysis;
-    if(!rec.screenshotPath.isEmpty())
-      dst.screenshotPath = rec.screenshotPath;
-    dst.confidence = rec.confidence;
-  }
-
-  return result;
-}
-
-//
 // ---- Investigation report (P1-9) ------------------------------------------
 //
 

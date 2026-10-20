@@ -877,8 +877,9 @@ QString HttpServer::DispatchJsonRpc(const QString &body, HttpRequest &httpReq, H
     result[QStringLiteral("serverInfo")] = serverInfo;
     result[QStringLiteral("instructions")] =
         QStringLiteral("Native qrenderdoc tools for inspecting the currently loaded capture. Most "
-                       "tools are read-only; explicitly marked bookmark tools can modify local "
-                       "bookmark data only when confirm=true is supplied. Mali analysis may launch "
+                       "tools advertise their side effects. Bookmark add/id calls authorize local "
+                       "mutation; legacy eventId calls require confirm=true and explicit confirm=false refuses. "
+                       "Report outputPath creates a new local file without overwriting. Mali analysis may launch "
                        "the locally configured compiler.");
 
     return resultReply(result);

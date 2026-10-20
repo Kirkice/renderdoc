@@ -1,0 +1,6 @@
+Filters: [mcp][compatibility]
+===============================================================================
+All tests passed (108 assertions in 5 test cases)
+
+Checking python binding consistency.
+Python bindings are consistent.

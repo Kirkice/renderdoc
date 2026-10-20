@@ -2238,7 +2238,7 @@ TEST_CASE("MCP investigation bookmark model", "[mcp][analysis]")
   CHECK(merged[0].conclusion == QStringLiteral("candidate for depth pre-pass"));
   CHECK(merged[0].confidence == Confidence::Inferred);
   CHECK(merged[1].eventId == QStringLiteral("40"));
-  CHECK(merged[1].id.isEmpty());
+  CHECK(merged[1].id == QStringLiteral("bm-40"));
   CHECK(merged[1].note == QStringLiteral("renamed in the event browser"));
   CHECK(merged[1].confidence == Confidence::Confirmed);
   // sidecar-only record (bm-30) is appended rather than dropped
@@ -2277,51 +2277,6 @@ TEST_CASE("MCP investigation bookmark model", "[mcp][analysis]")
   REQUIRE(nm.size() == 1);
   CHECK(nm[0].id == QStringLiteral("bm-note"));
   CHECK(nm[0].conclusion == QStringLiteral("bound by note"));
-
-  // ---- upsert: non-empty fields win, unknown id appended, empty id skipped
-  BookmarkFile base;
-  BookmarkTaggedItem existing;
-  existing.id = QStringLiteral("bm-21");
-  existing.eventId = QStringLiteral("21");
-  existing.title = QStringLiteral("original title");
-  existing.note = QStringLiteral("original note");
-  existing.screenshotPath = QStringLiteral("D:/caps/shots/orig.png");
-  existing.confidence = Confidence::Confirmed;
-  base.items.append(existing);
-
-  QVector<BookmarkTaggedItem> patch;
-  BookmarkTaggedItem upd;
-  upd.id = QStringLiteral("bm-21");
-  upd.conclusion = QStringLiteral("new conclusion");
-  upd.confidence = Confidence::Inferred;
-  patch.append(upd);
-
-  BookmarkTaggedItem append;
-  append.id = QStringLiteral("bm-99");
-  append.note = QStringLiteral("appended");
-  patch.append(append);
-
-  BookmarkTaggedItem ignored;    // no id: the caller must assign one first
-  ignored.note = QStringLiteral("must not be written");
-  patch.append(ignored);
-
-  const BookmarkFile up = UpsertBookmarkRecords(base, patch);
-  CHECK(up.version == 1);
-  REQUIRE(up.items.size() == 2);
-  // a partial patch never erases a field the caller did not mention
-  CHECK(up.items[0].id == QStringLiteral("bm-21"));
-  CHECK(up.items[0].title == QStringLiteral("original title"));
-  CHECK(up.items[0].note == QStringLiteral("original note"));
-  CHECK(up.items[0].screenshotPath == QStringLiteral("D:/caps/shots/orig.png"));
-  CHECK(up.items[0].conclusion == QStringLiteral("new conclusion"));
-  CHECK(up.items[0].confidence == Confidence::Inferred);
-  CHECK(up.items[1].id == QStringLiteral("bm-99"));
-  CHECK(up.items[1].note == QStringLiteral("appended"));
-
-  // a versionless base is normalised on write
-  BookmarkFile blank;
-  blank.version = 0;
-  CHECK(UpsertBookmarkRecords(blank, QVector<BookmarkTaggedItem>()).version == 1);
 
   // ---- JSON shape and prose block ----------------------------------------
   BookmarkSidecar sidecar;

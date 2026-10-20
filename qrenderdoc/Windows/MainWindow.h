@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <QMainWindow>
 #include <QMutex>
+#include <QPointer>
 #include <QSemaphore>
 #include <QThread>
 #include <QTimer>
@@ -50,6 +51,7 @@ class QToolButton;
 class CaptureDialog;
 class LiveCapture;
 class MCPStatusDialog;
+class SystemTraceViewer;
 class QNetworkAccessManager;
 
 namespace MCP
@@ -296,6 +298,25 @@ private:
   MCP::ToolRegistry *m_MCPRegistry = NULL;
   MCP::HttpServer *m_MCPServer = NULL;
   MCPStatusDialog *m_MCPView = NULL;
+
+  // The system trace panel is created once and then re-used: it owns the imported trace, the
+  // parsed series and the capture log, so re-opening it must raise the existing dock rather
+  // than build a second one with an empty state.
+  //
+  // Held in a QPointer because this panel is docked with HideOnClose but is still not immortal:
+  // loading a layout that omits it runs the orphan cleanup in LoadLayout, which force-closes and
+  // *deletes* the widget. A raw pointer here would then be dangling.
+  QPointer<SystemTraceViewer> m_SystemTraceViewer;
+
+  // Creates the panel on first use and returns the existing one afterwards. Also used as the tool
+  // window manager's create callback so a saved layout can re-create the tab; keeping it here (and
+  // not in CaptureContext::CreateBuiltinWindow) is what makes MainWindow the single owner.
+  SystemTraceViewer *ensureSystemTraceViewer();
+
+  // Docks the panel into the main window, or raises it if it is already docked. `raise` is false
+  // during startup, where the panel must be resident without stealing focus from the default
+  // layout's Event Browser. Shared by the menu action and LoadInitialLayout().
+  void dockSystemTraceViewer(bool raise);
 
   bool m_messageAlternate = false;
 
