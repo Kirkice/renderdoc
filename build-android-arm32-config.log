@@ -1,0 +1,48 @@
+CMake Deprecation Warning at CMakeLists.txt:4 (cmake_minimum_required):
+  Compatibility with CMake < 3.5 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value or use a ...<max> suffix to tell
+  CMake that the project does not need compatibility with older versions.
+
+
+-- Using JAVA_HOME = H:/tmp/renderdoc/build-tools-android/jdk
+-- Java in JAVA_HOME is 1.8
+-- Using Android SDK found in H:/tmp/renderdoc/build-tools-android/sdk
+-- Using Android NDK found in H:/tmp/renderdoc/build-tools-android/ndk
+-- Detecting CXX compiler ABI info
+CMake Warning:
+  Could not determine Ninja's code page, defaulting to UTF-8
+
+
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: H:/tmp/renderdoc/build-tools-android/ndk/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: H:/tmp/renderdoc/build-tools-android/ndk/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Calculating version
+-- Building RenderDoc version 1.47
+-- Disabling GL driver on android
+-- Disabling qrenderdoc for android build
+-- Disabling renderdoc python modules for android build
+-- Using Android ABI armeabi-v7a
+-- Using Android native API level 21
+-- Building RenderDoc in Release mode: Release
+-- libraries will be stripped with H:/tmp/renderdoc/build-tools-android/ndk/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-strip.exe
+-- Interceptor-lib not enabled (USE_INTERCEPTOR_LIB) - android hooking will use sometimes less reliable PLT-interception method. 
+-- Found Java: H:/tmp/renderdoc/build-tools-android/jdk/bin/java.exe (found version "1.8.0")
+-- Using Java of version 1.8.0
+-- Using Android build-tools version 30.0.2
+-- Using android.jar from platform android-29
+-- Building APK versionCode 147, versionName 884da15b16d866f557f5e3e6cb45e44ddd6f82fc
+-- Using custom wrap script for Android bug workaround
+-- Enabled APIs:
+--   - OpenGL ES (EGL)
+--   - Vulkan
+-- Configuring done (1.4s)
+-- Generating done (0.1s)
+-- Build files have been written to: H:/tmp/renderdoc/build-android-arm32

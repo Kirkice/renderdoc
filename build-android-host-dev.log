@@ -1,0 +1,1167 @@
+生成启动时间为 2026/10/21 15:19:17。
+日志记录详细程度设置为: Normal。
+     1>项目“H:\tmp\renderdoc\renderdoc.sln”在节点 1 上(Build 个目标)。
+     1>ValidateSolutionConfiguration:
+         正在生成解决方案配置“Development|x64”。
+       ValidateProjects:
+         在解决方案配置“Development|x64”中未选定生成项目“breakpad_common”。
+         在解决方案配置“Development|x64”中未选定生成项目“crash_generation_client”。
+         在解决方案配置“Development|x64”中未选定生成项目“crash_generation_server”。
+         在解决方案配置“Development|x64”中未选定生成项目“exception_handler”。
+     1>项目“H:\tmp\renderdoc\renderdoc.sln”(1)正在节点 1 上生成“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj.metaproj”(2) (默认目标)。
+     2>项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj.metaproj”(2)正在节点 1 上生成“H:\tmp\renderdoc\renderdoc\driver\ihv\nv\NV.vcxproj”(4) (默认目标)。
+     4>项目“H:\tmp\renderdoc\renderdoc\driver\ihv\nv\NV.vcxproj”(4)正在节点 1 上生成“H:\tmp\renderdoc\renderdoc\driver\shaders\spirv\renderdoc_spirv.vcxproj”(5) (默认目标)。
+     5>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\spirv\spirv.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\spirv\spirv.tlog\unsuccessfulbuild”执行 Touch 任务。
+       ClCompile:
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+       Lib:
+         所有输出均为最新。
+         renderdoc_spirv.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_spirv.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\spirv\spirv.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\spirv\spirv.tlog\spirv.lastbuildstate”执行 Touch 任务。
+     5>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\shaders\spirv\renderdoc_spirv.vcxproj”(默认目标)的操作。
+     4>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\NV\NV.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\NV\NV.tlog\unsuccessfulbuild”执行 Touch 任务。
+     1>项目“H:\tmp\renderdoc\renderdoc.sln”(1)正在节点 2 上生成“H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj”(6) (默认目标)。
+     6>项目“H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj”(6)正在节点 2 上生成“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(7) (默认目标)。
+     7>项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(7)正在节点 2 上生成“H:\tmp\renderdoc\renderdoc\driver\d3d11\renderdoc_d3d11.vcxproj”(8) (默认目标)。
+     8>项目“H:\tmp\renderdoc\renderdoc\driver\d3d11\renderdoc_d3d11.vcxproj”(8)正在节点 2 上生成“H:\tmp\renderdoc\renderdoc\driver\ihv\amd\AMD.vcxproj”(9) (默认目标)。
+     9>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+     4>ClCompile:
+         所有输出均为最新。
+     9>InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\AMD\AMD.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\AMD\AMD.tlog\unsuccessfulbuild”执行 Touch 任务。
+     4>Lib:
+         所有输出均为最新。
+         NV.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_NV.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\NV\NV.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\NV\NV.tlog\NV.lastbuildstate”执行 Touch 任务。
+     4>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\ihv\nv\NV.vcxproj”(默认目标)的操作。
+     8>项目“H:\tmp\renderdoc\renderdoc\driver\d3d11\renderdoc_d3d11.vcxproj”(8)正在节点 1 上生成“H:\tmp\renderdoc\renderdoc\driver\ihv\intel\Intel.vcxproj”(10) (默认目标)。
+    10>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\Intel\Intel.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\Intel\Intel.tlog\unsuccessfulbuild”执行 Touch 任务。
+       ClCompile:
+         所有输出均为最新。
+     9>ClCompile:
+         所有输出均为最新。
+    10>Lib:
+         所有输出均为最新。
+         Intel.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_Intel.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\Intel\Intel.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\Intel\Intel.tlog\Intel.lastbuildstate”执行 Touch 任务。
+    10>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\ihv\intel\Intel.vcxproj”(默认目标)的操作。
+     9>Lib:
+         所有输出均为最新。
+         AMD.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_AMD.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\AMD\AMD.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\AMD\AMD.tlog\AMD.lastbuildstate”执行 Touch 任务。
+     9>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\ihv\amd\AMD.vcxproj”(默认目标)的操作。
+     8>项目“H:\tmp\renderdoc\renderdoc\driver\d3d11\renderdoc_d3d11.vcxproj”(8)正在节点 1 上生成“H:\tmp\renderdoc\renderdoc\driver\shaders\dxbc\renderdoc_dxbc.vcxproj”(11) (默认目标)。
+    11>项目“H:\tmp\renderdoc\renderdoc\driver\shaders\dxbc\renderdoc_dxbc.vcxproj”(11)正在节点 1 上生成“H:\tmp\renderdoc\renderdoc\driver\shaders\dxil\renderdoc_dxil.vcxproj”(12) (默认目标)。
+    12>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\dxil\dxil.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\dxil\dxil.tlog\unsuccessfulbuild”执行 Touch 任务。
+       ClCompile:
+         所有输出均为最新。
+         所有输出均为最新。
+       Lib:
+         所有输出均为最新。
+         renderdoc_dxil.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_dxil.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\dxil\dxil.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\dxil\dxil.tlog\dxil.lastbuildstate”执行 Touch 任务。
+    12>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\shaders\dxil\renderdoc_dxil.vcxproj”(默认目标)的操作。
+    11>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc.tlog\unsuccessfulbuild”执行 Touch 任务。
+     7>项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(7)正在节点 2 上生成“H:\tmp\renderdoc\renderdoc\driver\dxgi\renderdoc_dxgi.vcxproj”(14) (默认目标)。
+    14>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+    11>ClCompile:
+         所有输出均为最新。
+    14>InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\dxgi\dxgi.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\dxgi\dxgi.tlog\unsuccessfulbuild”执行 Touch 任务。
+    11>ClCompile:
+         所有输出均为最新。
+       Lib:
+         所有输出均为最新。
+         renderdoc_dxbc.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_dxbc.lib
+    14>ClCompile:
+         所有输出均为最新。
+         所有输出均为最新。
+       Lib:
+         所有输出均为最新。
+         renderdoc_dxgi.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_dxgi.lib
+    11>FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc.tlog\dxbc.lastbuildstate”执行 Touch 任务。
+    11>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\shaders\dxbc\renderdoc_dxbc.vcxproj”(默认目标)的操作。
+    14>FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\dxgi\dxgi.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\dxgi\dxgi.tlog\dxgi.lastbuildstate”执行 Touch 任务。
+    14>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\dxgi\renderdoc_dxgi.vcxproj”(默认目标)的操作。
+     7>项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(7)正在节点 1 上生成“H:\tmp\renderdoc\renderdoc\driver\gl\renderdoc_gl.vcxproj”(15) (默认目标)。
+    15>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\gl\gl.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\gl\gl.tlog\unsuccessfulbuild”执行 Touch 任务。
+     7>项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(7)正在节点 2 上生成“H:\tmp\renderdoc\renderdoc\driver\ihv\arm\ARM.vcxproj”(16) (默认目标)。
+    16>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\ARM\ARM.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\ARM\ARM.tlog\unsuccessfulbuild”执行 Touch 任务。
+    15>ClCompile:
+         所有输出均为最新。
+    16>ClCompile:
+         所有输出均为最新。
+       Lib:
+         所有输出均为最新。
+         ARM.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_ARM.lib
+    15>ClCompile:
+         所有输出均为最新。
+    16>FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\ARM\ARM.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\ARM\ARM.tlog\ARM.lastbuildstate”执行 Touch 任务。
+    16>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\ihv\arm\ARM.vcxproj”(默认目标)的操作。
+    15>Lib:
+         所有输出均为最新。
+         renderdoc_gl.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_gl.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\gl\gl.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\gl\gl.tlog\gl.lastbuildstate”执行 Touch 任务。
+    15>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\gl\renderdoc_gl.vcxproj”(默认目标)的操作。
+     7>项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(7)正在节点 2 上生成“H:\tmp\renderdoc\renderdoc\driver\ihv\qc\QC.vcxproj”(17) (默认目标)。
+    17>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\QC\QC.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\QC\QC.tlog\unsuccessfulbuild”执行 Touch 任务。
+       ClCompile:
+         所有输出均为最新。
+     7>项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(7)正在节点 1 上生成“H:\tmp\renderdoc\renderdoc\driver\vulkan\renderdoc_vulkan.vcxproj”(18) (默认目标)。
+    18>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+    17>Lib:
+         所有输出均为最新。
+         QC.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_QC.lib
+    18>InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\vulkan\vulkan.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\vulkan\vulkan.tlog\unsuccessfulbuild”执行 Touch 任务。
+    17>FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\QC\QC.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\QC\QC.tlog\QC.lastbuildstate”执行 Touch 任务。
+    17>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\ihv\qc\QC.vcxproj”(默认目标)的操作。
+     7>项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(7)正在节点 2 上生成“H:\tmp\renderdoc\renderdoc\driver\d3d12\renderdoc_d3d12.vcxproj”(13) (默认目标)。
+    13>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12.tlog\unsuccessfulbuild”执行 Touch 任务。
+     8>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11.tlog\unsuccessfulbuild”执行 Touch 任务。
+    18>ClCompile:
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+       Lib:
+         所有输出均为最新。
+         renderdoc_vulkan.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_vulkan.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\vulkan\vulkan.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\vulkan\vulkan.tlog\vulkan.lastbuildstate”执行 Touch 任务。
+    18>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\vulkan\renderdoc_vulkan.vcxproj”(默认目标)的操作。
+     1>项目“H:\tmp\renderdoc\renderdoc.sln”(1)正在节点 1 上生成“H:\tmp\renderdoc\renderdocshim\renderdocshim.vcxproj”(20) (默认目标)。
+    20>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\renderdocshim\renderdocshim.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\renderdocshim\renderdocshim.tlog\unsuccessfulbuild”执行 Touch 任务。
+       ClCompile:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /Zi /JMC /nologo /W3 /WX- /diagnostics:column /Od /Oi /D WIN32 /D WIN64 /D _DEBUG /D _WINDOWS /D _USRDLL /D _WINDLL /D _UNICODE /D UNICODE /Gm- /MT /GS- /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"H:\tmp\renderdoc\x64\Development\obj\renderdocshim\\" /Fd"H:\tmp\renderdoc\x64\Development\obj\renderdocshim\vc143.pdb" /external:W3 /Gd /TP /FC /errorReport:queue renderdocshim.cpp
+     1>项目“H:\tmp\renderdoc\renderdoc.sln”(1)正在节点 1 上生成“H:\tmp\renderdoc\qrenderdoc\renderdocui_stub.vcxproj”(23) (默认目标)。
+    23>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\renderdocui_stub\renderdocui_stub.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\renderdocui_stub\renderdocui_stub.tlog\unsuccessfulbuild”执行 Touch 任务。
+    20>ClCompile:
+         renderdocshim.cpp
+    23>ClCompile:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /Zi /JMC /nologo /W3 /WX- /diagnostics:column /O2 /Oi /D WIN32 /D NDEBUG /D _WINDOWS /D _UNICODE /D UNICODE /Gm- /EHsc /MD /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"H:\tmp\renderdoc\x64\Development\obj\renderdocui_stub\\" /Fd"H:\tmp\renderdoc\x64\Development\obj\renderdocui_stub\vc143.pdb" /external:W3 /Gd /TP /FC /errorReport:queue renderdocui_stub.cpp
+     7>项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(7)正在节点 2 上生成“H:\tmp\renderdoc\renderdoc\renderdoc_version.vcxproj”(19) (默认目标)。
+    19>RunTaskManual:
+         Read Git commit: '884da15b16d866f557f5e3e6cb45e44ddd6f82fc'
+       PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\version\version.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\version\version.tlog\unsuccessfulbuild”执行 Touch 任务。
+       ClCompile:
+         所有输出均为最新。
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /Zi /nologo /W3 /WX- /diagnostics:column /Od /D "GIT_COMMIT_HASH=\"884da15b16d866f557f5e3e6cb45e44ddd6f82fc\"" /D WIN64 /D _UNICODE /D UNICODE /Gm- /EHsc /MD /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"H:\tmp\renderdoc\x64\Development\obj\version\\" /Fd"H:\tmp\renderdoc\x64\Development\version.pdb" /external:W3 /Gd /TP /FC /errorReport:queue replay\version.cpp
+    23>ClCompile:
+         renderdocui_stub.cpp
+    19>ClCompile:
+         version.cpp
+     8>ClCompile:
+         所有输出均为最新。
+         所有输出均为最新。
+       Lib:
+         所有输出均为最新。
+         renderdoc_d3d11.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_d3d11.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11.tlog\d3d11.lastbuildstate”执行 Touch 任务。
+     8>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\d3d11\renderdoc_d3d11.vcxproj”(默认目标)的操作。
+    13>ClCompile:
+         所有输出均为最新。
+         所有输出均为最新。
+       Lib:
+         所有输出均为最新。
+         renderdoc_d3d12.vcxproj -> H:\tmp\renderdoc\x64\Development\driver_d3d12.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12.tlog\d3d12.lastbuildstate”执行 Touch 任务。
+    13>已完成生成项目“H:\tmp\renderdoc\renderdoc\driver\d3d12\renderdoc_d3d12.vcxproj”(默认目标)的操作。
+    19>Lib:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\Lib.exe /OUT:"H:\tmp\renderdoc\x64\Development\version.lib" /NOLOGO /MACHINE:X64 H:\tmp\renderdoc\x64\Development\obj\version\version.obj
+    20>Link:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\link.exe /ERRORREPORT:QUEUE /OUT:"H:\tmp\renderdoc\x64\Development\renderdocshim64.dll" /INCREMENTAL /ILK:"H:\tmp\renderdoc\x64\Development\obj\renderdocshim\renderdocshim64.ilk" /NOLOGO kernel32.lib user32.lib /NODEFAULTLIB /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"H:\tmp\renderdoc\x64\Development\renderdocshim64.pdb" /SUBSYSTEM:WINDOWS /LTCGOUT:"H:\tmp\renderdoc\x64\Development\obj\renderdocshim\renderdocshim64.iobj" /TLBID:1 /ENTRY:"dll_entry" /DYNAMICBASE /NXCOMPAT /IMPLIB:"H:\tmp\renderdoc\x64\Development\renderdocshim64.lib" /MACHINE:X64 /DLL H:\tmp\renderdoc\x64\Development\obj\renderdocshim\renderdocshim.obj
+    19>Lib:
+         renderdoc_version.vcxproj -> H:\tmp\renderdoc\x64\Development\version.lib
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\version\version.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\version\version.tlog\version.lastbuildstate”执行 Touch 任务。
+    19>已完成生成项目“H:\tmp\renderdoc\renderdoc\renderdoc_version.vcxproj”(默认目标)的操作。
+    20>Link:
+         renderdocshim.vcxproj -> H:\tmp\renderdoc\x64\Development\renderdocshim64.dll
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\renderdocshim\renderdocshim.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\renderdocshim\renderdocshim.tlog\renderdocshim.lastbuildstate”执行 Touch 任务。
+    20>已完成生成项目“H:\tmp\renderdoc\renderdocshim\renderdocshim.vcxproj”(默认目标)的操作。
+    23>ResourceCompile:
+         C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\rc.exe /D _UNICODE /D UNICODE /l"0x0409" /IH:\tmp\renderdoc\renderdoc\api\replay /nologo /fo"H:\tmp\renderdoc\x64\Development\obj\renderdocui_stub\renderdoccmd.res" ..\renderdoccmd\renderdoccmd.rc 
+       Link:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\link.exe /ERRORREPORT:QUEUE /OUT:"H:\tmp\renderdoc\x64\Development\\renderdocui.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"H:\tmp\renderdoc\x64\Development\\renderdocui.pdb" /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"H:\tmp\renderdoc\x64\Development\\renderdocui.lib" /MACHINE:X64 H:\tmp\renderdoc\x64\Development\obj\renderdocui_stub\renderdoccmd.res
+         H:\tmp\renderdoc\x64\Development\obj\renderdocui_stub\renderdocui_stub.obj
+         renderdocui_stub.vcxproj -> H:\tmp\renderdoc\x64\Development\renderdocui.exe
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\renderdocui_stub\renderdocui_stub.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\renderdocui_stub\renderdocui_stub.tlog\renderdocui_stub.lastbuildstate”执行 Touch 任务。
+    23>已完成生成项目“H:\tmp\renderdoc\qrenderdoc\renderdocui_stub.vcxproj”(默认目标)的操作。
+     7>_bakeShaders:
+       正在跳过目标“_bakeShaders”，因为所有输出文件相对于输入文件而言都是最新的。
+       _jsonProcess:
+         Processing layer JSON file for RenderDoc 1.47
+       PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\renderdoc\renderdoc.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\renderdoc\renderdoc.tlog\unsuccessfulbuild”执行 Touch 任务。
+       ClCompile:
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+       ResourceCompile:
+         所有输出均为最新。
+       Link:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX64\x64\link.exe /ERRORREPORT:QUEUE /OUT:"H:\tmp\renderdoc\x64\Development\renderdoc.dll" /INCREMENTAL /ILK:"H:\tmp\renderdoc\x64\Development\obj\renderdoc\renderdoc.ilk" /NOLOGO /NATVIS:renderdoc.natvis ws2_32.lib kernel32.lib user32.lib shlwapi.lib setupapi.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /DEF:"H:\tmp\renderdoc\renderdoc\os\win32\comexport.def" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"H:\tmp\renderdoc\x64\Development\renderdoc.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"H:\tmp\renderdoc\x64\Development\renderdoc.lib" /MACHINE:X64 /DLL H:\tmp\renderdoc\x64\Development\obj\renderdoc\renderdoc.res
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\catch.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\BC1_Encode_kernel.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\BC2_Encode_kernel.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\BC3_Encode_kernel.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\BC4_Encode_kernel.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\BC5_Encode_kernel.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\BC6_Encode_kernel.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\BC7_Encode_Kernel.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\jpgd.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\jpge.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\lz4.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\md5.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\miniz.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\pugixml.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\stb_impl.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\superluminal.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\tinyexr.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\tinyfiledialogs.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\hist.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstd_double_fast.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstd_fast.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstd_lazy.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstd_ldm.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstd_opt.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\entropy_common.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\error_private.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\fse_decompress.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\pool.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\threading.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\xxhash.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstd_common.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\fse_compress.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\huf_compress.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstdmt_compress.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstd_compress.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\huf_decompress.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstd_decompress.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\android.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\android_tools.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\android_utils.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\jdwp.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\jdwp_connection.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\jdwp_util.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\common.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\dds_readwrite.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\jobsystem.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\jobsystem_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\threading_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\bit_flag_iterator_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\gpu_address_range_tracker.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\settings.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\core.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\image_viewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\intervals_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\plugins.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\sparse_page_table.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\target_control.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\remote_server.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\replay_proxy.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\resource_manager.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\glsl_shaders.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\camera.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\formatpacking.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\matrix.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\vec.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\os_specific.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\sys_win32_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\win32_callstack.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\win32_hook.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\win32_libentry.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\win32_network.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\win32_process.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\win32_shellext.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\win32_stringio.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\win32_threading.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\app_api.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\basic_types_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\capture_file.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\capture_options.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\dummy_driver.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\entry_points.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\replay_driver.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\replay_output.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\replay_controller.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\chrome_json_codec.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\xml_codec.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\comp_io_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\lz4io.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\rdcfile.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\serialiser.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\serialiser_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\streamio.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\streamio_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\zstdio.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\controlflow.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\grisu2.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\string_utils.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoc\utf8printf.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_common.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_msaa_array_conv.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_outputwindow.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_overlay.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_pixelhistory.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_postvs.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_rendermesh.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_rendertext.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_rendertexture.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_serialise.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_context.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_context1_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_context2_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_context3_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_context_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_device.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_device1_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_device2_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_device3_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_device_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_initstate.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_manager.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_renderstate.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_replay.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_resources.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_shader_cache.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_shaderdebug.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_stringise.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d11_video.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\d3d9_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d11\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\AMD\ags_wrapper.obj
+         H:\tmp\renderdoc\x64\Development\obj\AMD\amd_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\AMD\amd_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\AMD\amd_isa.obj
+         H:\tmp\renderdoc\x64\Development\obj\AMD\amd_isa_devices.obj
+         H:\tmp\renderdoc\x64\Development\obj\AMD\amd_isa_win32.obj
+         H:\tmp\renderdoc\x64\Development\obj\AMD\amd_rgp.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\CodeGen.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\Link.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\Constant.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\glslang_tab.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\InfoSink.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\Initialize.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\Intermediate.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\intermOut.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\IntermTraverse.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\iomapper.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\attribute.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\limits.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\linkValidate.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\parseConst.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\ParseContextBase.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\ParseHelper.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\PoolAlloc.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\Pp.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\PpAtom.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\PpContext.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\PpScanner.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\PpTokens.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\propagateNoContraction.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\reflection.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\RemoveTree.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\Scan.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\ShaderLang.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\SpirvIntrinsics.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\SymbolTable.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\Versions.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\ResourceLimits.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\ossource.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\GlslangToSpv.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\InReadableOrder.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\Logger.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\SpvBuilder.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\SpvPostProcess.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\SpvTools.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\glslang_compile.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_common.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_compile.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_debug_glsl450.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_debug_setup.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_disassemble.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_editor.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_processor.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_reflect.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_gen.obj
+         H:\tmp\renderdoc\x64\Development\obj\spirv\spirv_stringise.obj
+         H:\tmp\renderdoc\x64\Development\obj\Intel\intel_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\Intel\intel_gl_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\NV\nvapi_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\NV\nvapi_wrapper.obj
+         H:\tmp\renderdoc\x64\Development\obj\NV\nv_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\NV\nv_counter_enumerator.obj
+         H:\tmp\renderdoc\x64\Development\obj\NV\nv_d3d11_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\NV\nv_d3d12_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\NV\nv_gl_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\NV\nv_vk_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\NV\nv_aftermath.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dx_debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_bytecode.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_bytecode_editor.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_bytecode_vendorext.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_compile.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_bytecode_ops.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_container.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_reflect.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_sdbg.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_spdb.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\dxbc_stringise.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxbc\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_bytecode.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_bytecode_editor.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_common.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_controlflow.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_debuginfo.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_disassemble.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_metadata.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_reflect.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\dxil_stringise.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\llvm_decoder.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\llvm_encoder.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxil\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_commands.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list10_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list1_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list2_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list3_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list4_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list5_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list6_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list7_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list8_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list9_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_list_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_command_queue_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_common.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_rescreate_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap1.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap11.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap12.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap13.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap14.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap15.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap2.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap3.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap4.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap5.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap6.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap7.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap8.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_device_wrap9.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_dxil_debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_initstate.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_manager.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_msaa_array_conv.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_outputwindow.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_overlay.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_pixelhistory.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_postvs.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_rendermesh.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_rendertext.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_rendertexture.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_replay.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_resources.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_rootsig.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_sdk_select.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_serialise.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_shaderdebug.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_shader_cache.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_shader_feedback.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_state.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\d3d12_stringise.obj
+         H:\tmp\renderdoc\x64\Development\obj\d3d12\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxgi\dxgi_common.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxgi\dxgi_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxgi\dxgi_stringise.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxgi\dxgi_wrapped.obj
+         H:\tmp\renderdoc\x64\Development\obj\dxgi\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\egl_platform.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\egl_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_common.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_driver.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_pixelhistory.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_shaderdebug.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\wgl_hooks.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_initstate.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_manager.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_msaa_array_conv.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_outputwindow.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_overlay.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_postvs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_program_iterate.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_rendermesh.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_renderstate.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_rendertext.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_rendertexture.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_replay.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_resources.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_shader_refl.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_stringise.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\wgl_platform.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_buffer_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_debug_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_draw_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_emulated.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_framebuffer_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_get_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_interop_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_query_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_sampler_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_shader_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_state_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_texture_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\gl\gl_uniform_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\ARM\arm_counters_stub.obj
+         H:\tmp\renderdoc\x64\Development\obj\QC\qc_counters_stub.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\imagestate_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\imgrefs_tests.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_msaa_buffer_conv.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_shader_feedback.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_image_states.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_next_chains.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_outputwindow.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_overlay.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_postvs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_rendermesh.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_rendertext.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_rendertexture.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_serialise.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_shaderdebug.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_shader_cache.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_stringise.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_counters.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_dispatchtables.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_initstate.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_memory.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_state.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_layer.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_common.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_core.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_debug.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_info.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_manager.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_pixelhistory.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_replay.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_win32.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_resources.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_acceleration_structure.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_cmd_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_dynamic_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_descriptor_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_device_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_draw_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_get_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_misc_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_queue_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_resource_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_shader_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_sync_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\vulkan\vk_wsi_funcs.obj
+         H:\tmp\renderdoc\x64\Development\obj\version\version.obj
+         renderdoc.vcxproj -> H:\tmp\renderdoc\x64\Development\renderdoc.dll
+       _CopyOutOfDateSourceItemsToOutputDirectory:
+       正在跳过目标“_CopyOutOfDateSourceItemsToOutputDirectory”，因为所有输出文件相对于输入文件而言都是最新的。
+       AfterBuild:
+         正在将文件从“H:\tmp\renderdoc\renderdoc\api\app\renderdoc_app.h”复制到“H:\tmp\renderdoc\x64\Development\renderdoc_app.h”。
+         正在将文件从“H:\tmp\renderdoc\renderdoc\3rdparty\dbghelp\x64\symsrv.dll”复制到“H:\tmp\renderdoc\x64\Development\symsrv.dll”。
+         正在将文件从“H:\tmp\renderdoc\renderdoc\3rdparty\dbghelp\x64\symsrv.yes”复制到“H:\tmp\renderdoc\x64\Development\symsrv.yes”。
+         正在将文件从“H:\tmp\renderdoc\renderdoc\3rdparty\dbghelp\x64\dbghelp.dll”复制到“H:\tmp\renderdoc\x64\Development\dbghelp.dll”。
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\renderdoc\renderdoc.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\renderdoc\renderdoc.tlog\renderdoc.lastbuildstate”执行 Touch 任务。
+     7>已完成生成项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj”(默认目标)的操作。
+     2>已完成生成项目“H:\tmp\renderdoc\renderdoc\renderdoc.vcxproj.metaproj”(默认目标)的操作。
+     6>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qrenderdoc.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qrenderdoc.tlog\unsuccessfulbuild”执行 Touch 任务。
+       CustomBuild:
+         所有输出均为最新。
+     1>项目“H:\tmp\renderdoc\renderdoc.sln”(1)正在节点 1 上生成“H:\tmp\renderdoc\renderdoccmd\renderdoccmd.vcxproj.metaproj”(3) (默认目标)。
+     3>项目“H:\tmp\renderdoc\renderdoccmd\renderdoccmd.vcxproj.metaproj”(3)正在节点 1 上生成“H:\tmp\renderdoc\renderdoccmd\renderdoccmd.vcxproj”(24) (默认目标)。
+    24>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\renderdoccmd.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\renderdoccmd.tlog\unsuccessfulbuild”执行 Touch 任务。
+       ClCompile:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /IH:\tmp\renderdoc\renderdocshim\ /IH:\tmp\renderdoc\renderdoc\api\ /IH:\tmp\renderdoc\renderdoc\api\replay /IH:\tmp\renderdoc\renderdoccmd\3rdparty\ /IH:\tmp\renderdoc\renderdoc\3rdparty\ /Zi /JMC /nologo /W3 /WX /diagnostics:column /Od /D WIN32 /D _CRT_SECURE_NO_WARNINGS /D WIN64 /D RENDERDOC_PLATFORM_WIN32 /D NDEBUG /D _CONSOLE /D PYTHON_AVAILABLE=1 /D _UNICODE /D UNICODE /Gm- /EHsc /RTC1 /MD /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\\" /Fd"H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\vc143.pdb" /external:W3 /Gd /TC /FC /errorReport:queue ..\renderdoc\3rdparty\miniz\miniz.c
+     1>项目“H:\tmp\renderdoc\renderdoc.sln”(1)正在节点 1 上生成“H:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\pyrenderdoc_module.vcxproj”(21) (默认目标)。
+    21>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\pyrender.A8998B2D.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\pyrender.A8998B2D.tlog\unsuccessfulbuild”执行 Touch 任务。
+       CustomBuild:
+         所有输出均为最新。
+    24>ClCompile:
+         miniz.c
+    21>CustomBuild:
+         Compiling SWIG interface
+     6>ClCompile:
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+         所有输出均为最新。
+       ResourceCompile:
+         所有输出均为最新。
+       Link:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\link.exe /ERRORREPORT:QUEUE /OUT:"H:\tmp\renderdoc\x64\Development\\qrenderdoc.exe" /NOLOGO /LIBPATH:H:\tmp\renderdoc\\qrenderdoc\3rdparty\pyside\x64 /LIBPATH:H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\lib /NATVIS:python36.natvis /NATVIS:python38.natvis user32.lib H:\tmp\renderdoc\\qrenderdoc\3rdparty\python\x64\python36.lib qtmain.lib Qt5Widgets.lib Qt5Gui.lib Qt5Core.lib Qt5Svg.lib Qt5Network.lib shell32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"H:\tmp\renderdoc\x64\Development\\qrenderdoc.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /DYNAMICBASE /NXCOMPAT /MACHINE:X64 /ignore:4099 H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qrenderdoc.res
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexCPP.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexDiff.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexErrorList.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexHTML.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexJSON.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexNull.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexPython.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexRust.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Accessor.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CharacterCategory.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CharacterSet.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexerBase.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexerModule.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexerNoExceptions.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LexerSimple.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PropSetSimple.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\StyleContext.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\WordList.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PlatQt.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ScintillaEditBase.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ScintillaQt.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ScintillaDocument.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ScintillaEdit.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\AutoComplete.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CallTip.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CaseConvert.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CaseFolder.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Catalogue.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CellBuffer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CharClassify.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ContractionState.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Decoration.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Document.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\EditModel.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Editor.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\EditView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ExternalLexer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Indicator.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\KeyMap.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LineMarker.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MarginView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PerLine.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PositionCache.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RESearch.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RunStyles.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ScintillaBase.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Selection.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Style.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\UniConversion.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ViewStyle.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\XPM.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\BufferFormatter.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Analytics.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Helpers.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PersistentConfig.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\QRDInterface.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RemoteHost.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ShaderProcessingTool.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\precompiled.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qprocessinfo.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PythonContext.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PythonInvokers.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\QRDUtils.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MiniQtHelper.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\Resources.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RGPInterop.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\QCInterop.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\SystemTrace.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\SystemTraceCorrelation.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\TraceCapture.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ScintillaSyntax.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDStyle.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDTweakedNativeStyle.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_AboutDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_CrashDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_UpdateDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_AnalyticsConfirmDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_AnalyticsPromptDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_APIInspector.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_AxisMappingDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_CameraControlsDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ProjectionGuessDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ResourceInspector.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_BufferFormatSpecifier.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ComputeDebugSelector.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_FindReplace.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_BufferViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_CaptureDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_CustomPaintWidget.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_D3D11PipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_D3D12PipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_DebugMessageView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_LogView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_CommentView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_DescriptorViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_EventBrowser.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_GLPipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_LiveCapture.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_EnvironmentEditor.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_OrderedListEditor.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_MarkerBreadcrumbs.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RemoteManager.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ExtensionManager.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_PerformanceCounterSelection.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_PerformanceCounterViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_PipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_PythonContext.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_QRDUtils.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_PipelineFlowChart.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RangeHistogram.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_AnnotationDisplay.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_CollapseGroupBox.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDDoubleSpinBox.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDSplitter.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDLabel.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDMenu.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDHeaderView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDToolButton.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDLineEdit.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDTextEdit.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_MainWindow.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDListView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDListWidget.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_MCPHttpServer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_InvestigationReportDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_MCPStatusDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDTableView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDTableWidget.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDTreeView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDToolTip.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_RDTreeWidget.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ResourcePreview.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ScintillaDocument.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ScintillaEdit.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ScintillaEditBase.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ScintillaQt.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_SettingsDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ShaderViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ShaderMessageViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_PythonShell.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_PixelHistoryView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_StatisticsViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_TimelineBar.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_SuggestRemoteDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_TextureGoto.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_TextureSaveDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_TextureViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_TipsDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ConfigEditor.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ThumbnailStrip.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ReplayOptionsSelector.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ToolWindowManager.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ToolWindowManagerArea.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ToolWindowManagerSplitter.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ToolWindowManagerTabBar.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_ToolWindowManagerWrapper.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_VirtualFileDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\moc_VulkanPipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qrc_resources.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qrc_qtconf.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\renderdoc_python.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qrenderdoc_python.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\BufferFormatSpecifier.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CollapseGroupBox.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ComputeDebugSelector.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\FindReplace.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDListWidget.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDTableView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDTableWidget.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDTreeView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDToolTip.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDTreeWidget.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PipelineFlowChart.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RangeHistogram.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\AnnotationDisplay.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDDoubleSpinBox.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDSplitter.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDLabel.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDMenu.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDHeaderView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDToolButton.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDListView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ResourcePreview.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\TextureGoto.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ThumbnailStrip.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ReplayOptionsSelector.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\OrderedListEditor.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MarkerBreadcrumbs.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CaptureContext.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDStyle.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\StyleData.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDTweakedNativeStyle.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CustomPaintWidget.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\APIInspector.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ResourceInspector.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\BufferViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\DebugMessageView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LogView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CommentView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\DescriptorViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\AboutDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CrashDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\UpdateDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\AnalyticsConfirmDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\AnalyticsPromptDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\AxisMappingDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CameraControlsDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ProjectionGuessDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPTypes.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPToolRegistry.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPQueryAdapter.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPTools.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPHttpServer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPTests.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPCaptureMatch.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPRegressionDiff.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPAnalysisModel.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPDiagnostics.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPExternalTools.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPSessionTools.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPSessionTests.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPShaderTools.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPShaderTests.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPComparisonTools.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPComparisonTests.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPCompatibilityTools.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPCompatibilityTests.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPResourceTools.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPResourceTests.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPSourceMapping.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\InvestigationReportDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MaliAnalysisDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MCPStatusDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\SystemTraceViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\CaptureDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\LiveCapture.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\EnvironmentEditor.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PerformanceCounterSelection.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RemoteManager.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ExtensionManager.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\SettingsDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\SuggestRemoteDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\TextureSaveDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\TipsDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ConfigEditor.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\VirtualFileDialog.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\EventBrowser.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\FlowLayout.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDLineEdit.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\RDTextEdit.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\MainWindow.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ReplayManager.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\D3D11PipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\D3D12PipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\GLPipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\VulkanPipelineStateViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ShaderViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ShaderMessageViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PythonShell.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PixelHistoryView.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\PerformanceCounterViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\StatisticsViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\TimelineBar.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\TextureViewer.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ToolWindowManager.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ToolWindowManagerArea.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ToolWindowManagerSplitter.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ToolWindowManagerTabBar.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\ToolWindowManagerWrapper.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qrenderdoc.obj
+         H:\tmp\renderdoc\x64\Development\renderdoc.lib
+         H:\tmp\renderdoc\x64\Development\obj\version\version.obj
+    21>CustomBuild:
+         Language subdirectory: python
+         Search paths:
+            .\
+            H:\tmp\renderdoc\renderdoc\api\replay\
+            .\swig_lib\python\
+            H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\python\
+            .\swig_lib\
+            H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\
+         Preprocessing...
+         Starting language-specific parse...
+     6>Link:
+         qrenderdoc_local.vcxproj -> H:\tmp\renderdoc\x64\Development\qrenderdoc.exe
+       _CopyOutOfDateSourceItemsToOutputDirectory:
+       正在跳过目标“_CopyOutOfDateSourceItemsToOutputDirectory”，因为所有输出文件相对于输入文件而言都是最新的。
+       _CopyOutOfDateSourceItemsToOutputDirectoryAlways:
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\python\python36.zip”复制到“H:\tmp\renderdoc\x64\Development\python36.zip”。
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\python\x64\_ctypes.pyd”复制到“H:\tmp\renderdoc\x64\Development\_ctypes.pyd”。
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\python\x64\python36.dll”复制到“H:\tmp\renderdoc\x64\Development\python36.dll”。
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\plugins\platforms\qwindows.dll”复制到“H:\tmp\renderdoc\x64\Development\qtplugins\platforms\qwindows.dll”。
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\plugins\imageformats\qsvg.dll”复制到“H:\tmp\renderdoc\x64\Development\qtplugins\imageformats\qsvg.dll”。
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Core.dll”复制到“H:\tmp\renderdoc\x64\Development\Qt5Core.dll”。
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Gui.dll”复制到“H:\tmp\renderdoc\x64\Development\Qt5Gui.dll”。
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Svg.dll”复制到“H:\tmp\renderdoc\x64\Development\Qt5Svg.dll”。
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Widgets.dll”复制到“H:\tmp\renderdoc\x64\Development\Qt5Widgets.dll”。
+         正在将文件从“H:\tmp\renderdoc\qrenderdoc\3rdparty\qt\x64\bin\Qt5Network.dll”复制到“H:\tmp\renderdoc\x64\Development\Qt5Network.dll”。
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qrenderdoc.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\qrenderdoc\qrenderdoc.tlog\qrenderdoc.lastbuildstate”执行 Touch 任务。
+       PythonNotOverridden:
+         Built against default bundled python
+       CopyMaliOfflineCompiler:
+         Bundled Mali Offline Compiler from E:\Application\Arm Performance Studio 2024.6\mali_offline_compiler into H:\tmp\renderdoc\x64\Development\\mali_offline_compiler
+     6>已完成生成项目“H:\tmp\renderdoc\qrenderdoc\qrenderdoc_local.vcxproj”(默认目标)的操作。
+    21>CustomBuild:
+         Processing types...
+         C++ analysis...
+         Processing nested classes...
+         Generating wrappers...
+       ClCompile:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /IH:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\..\..\ /IH:\tmp\renderdoc\\qrenderdoc\3rdparty\python\include /IH:\tmp\renderdoc\\renderdoc\api\replay /Zi /nologo /W4 /WX /diagnostics:column /MP /Od /GL /D RENDERDOC_PLATFORM_WIN32 /D WIN32 /D _WINDOWS /D _USRDLL /D WIN64 /D _WINDLL /D _UNICODE /D UNICODE /Gm- /EHsc /MD /GS- /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR- /Fo"H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\\" /Fd"H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\vc143.pdb" /external:W4 /Gd /TP /FC /errorReport:queue /wd4100 /wd4512 pyrenderdoc_stub.cpp
+    24>ClCompile:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /IH:\tmp\renderdoc\renderdocshim\ /IH:\tmp\renderdoc\renderdoc\api\ /IH:\tmp\renderdoc\renderdoc\api\replay /IH:\tmp\renderdoc\renderdoccmd\3rdparty\ /IH:\tmp\renderdoc\renderdoc\3rdparty\ /Zi /JMC /nologo /W3 /WX /diagnostics:column /Od /D WIN32 /D _CRT_SECURE_NO_WARNINGS /D WIN64 /D RENDERDOC_PLATFORM_WIN32 /D NDEBUG /D _CONSOLE /D PYTHON_AVAILABLE=1 /D _UNICODE /D UNICODE /Gm- /EHsc /RTC1 /MD /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\\" /Fd"H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\vc143.pdb" /external:W3 /Gd /TP /FC /errorReport:queue renderdoccmd.cpp renderdoccmd_win32.cpp
+     1>项目“H:\tmp\renderdoc\renderdoc.sln”(1)正在节点 1 上生成“H:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\qrenderdoc_module.vcxproj”(22) (默认目标)。
+    22>PrepareForBuild:
+         已启用结构化输出。编译器诊断的格式设置将反映错误层次结构。有关详细信息，请参阅 https://aka.ms/cpp/structured-output。
+       InitializeBuildStatus:
+         正在创建“H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\qrenderd.61157930.tlog\unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\qrenderd.61157930.tlog\unsuccessfulbuild”执行 Touch 任务。
+       CustomBuild:
+         所有输出均为最新。
+    21>ClCompile:
+         pyrenderdoc_stub.cpp
+    24>ClCompile:
+         renderdoccmd.cpp
+    22>CustomBuild:
+         Compiling SWIG interface
+         Language subdirectory: python
+         Search paths:
+            .\
+            H:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\..\..\
+            H:\tmp\renderdoc\renderdoc\api\replay\
+            .\swig_lib\python\
+            H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\python\
+            .\swig_lib\
+            H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\
+         Preprocessing...
+         Starting language-specific parse...
+    24>ClCompile:
+         renderdoccmd_win32.cpp
+         正在生成代码...
+    22>CustomBuild:
+         Processing types...
+         C++ analysis...
+         Processing nested classes...
+         Generating wrappers...
+         Compiling SWIG interface
+         Language subdirectory: python
+         Search paths:
+            .\
+            H:\tmp\renderdoc\renderdoc\api\replay\
+            .\swig_lib\python\
+            H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\python\
+            .\swig_lib\
+            H:\tmp\renderdoc\qrenderdoc\3rdparty\swig\Lib\
+         Preprocessing...
+         Starting language-specific parse...
+         Processing types...
+         C++ analysis...
+         Processing nested classes...
+         Generating wrappers...
+       ClCompile:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /IH:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\..\..\ /IH:\tmp\renderdoc\\qrenderdoc\3rdparty\python\include /IH:\tmp\renderdoc\\renderdoc\api\replay /Zi /nologo /W4 /WX /diagnostics:column /MP /Od /D RENDERDOC_PLATFORM_WIN32 /D WIN32 /D NDEBUG /D _WINDOWS /D _USRDLL /D WIN64 /D _WINDLL /D _UNICODE /D UNICODE /Gm- /EHsc /MD /GS- /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR- /Fo"H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\\" /Fd"H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\vc143.pdb" /external:W4 /Gd /TP /wd4714 /FC /errorReport:queue /wd4100 /wd4512 /wd4127 pyrenderdoc_stub.cpp qrenderdoc_stub.cpp
+    21>ClCompile:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /IH:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\..\..\ /IH:\tmp\renderdoc\\qrenderdoc\3rdparty\python\include /IH:\tmp\renderdoc\\renderdoc\api\replay /Zi /nologo /W4 /WX /diagnostics:column /MP /Od /GL /D RENDERDOC_PLATFORM_WIN32 /D WIN32 /D _WINDOWS /D _USRDLL /D WIN64 /D _WINDLL /D _UNICODE /D UNICODE /Gm- /EHsc /MD /GS- /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR- /Fo"H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\\" /Fd"H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\vc143.pdb" /external:W4 /Gd /TP /wd4127 /wd4189 /wd4456 /wd4459 /wd4701 /wd4244 /wd4706 /wd4101 /FC /errorReport:queue /bigobj /wd4100 /wd4512 H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\generated\renderdoc_module_python.cxx
+    24>ResourceCompile:
+         C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\rc.exe /D _UNICODE /D UNICODE /l"0x0409" /IH:\tmp\renderdoc\renderdoc\api\replay /nologo /fo"H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\renderdoccmd.res" renderdoccmd.rc 
+    21>ClCompile:
+         renderdoc_module_python.cxx
+    22>ClCompile:
+         pyrenderdoc_stub.cpp
+         qrenderdoc_stub.cpp
+    24>Link:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\link.exe /ERRORREPORT:QUEUE /OUT:"H:\tmp\renderdoc\\x64\Development\renderdoccmd.exe" /INCREMENTAL /ILK:"H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\renderdoccmd.ilk" /NOLOGO psapi.lib ws2_32.lib Wininet.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"H:\tmp\renderdoc\\x64\Development\renderdoccmd.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"H:\tmp\renderdoc\\x64\Development\renderdoccmd.lib" /MACHINE:X64 H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\renderdoccmd.res
+         H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\miniz.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\renderdoccmd.obj
+         H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\renderdoccmd_win32.obj
+         H:\tmp\renderdoc\x64\Development\renderdoc.lib
+         H:\tmp\renderdoc\x64\Development\version.lib
+           正在创建库 H:\tmp\renderdoc\\x64\Development\renderdoccmd.lib 和对象 H:\tmp\renderdoc\\x64\Development\renderdoccmd.exp
+         renderdoccmd.vcxproj -> H:\tmp\renderdoc\x64\Development\renderdoccmd.exe
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\renderdoccmd.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\renderdoccmd\renderdoccmd.tlog\renderdoccmd.lastbuildstate”执行 Touch 任务。
+    24>已完成生成项目“H:\tmp\renderdoc\renderdoccmd\renderdoccmd.vcxproj”(默认目标)的操作。
+     3>已完成生成项目“H:\tmp\renderdoc\renderdoccmd\renderdoccmd.vcxproj.metaproj”(默认目标)的操作。
+    22>ClCompile:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /IH:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\..\..\ /IH:\tmp\renderdoc\\qrenderdoc\3rdparty\python\include /IH:\tmp\renderdoc\\renderdoc\api\replay /Zi /nologo /W4 /WX /diagnostics:column /MP /Od /D RENDERDOC_PLATFORM_WIN32 /D WIN32 /D NDEBUG /D _WINDOWS /D _USRDLL /D WIN64 /D _WINDLL /D _UNICODE /D UNICODE /Gm- /EHsc /MD /GS- /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR- /Fo"H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\\" /Fd"H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\vc143.pdb" /external:W4 /Gd /TP /wd4127 /wd4189 /wd4456 /wd4459 /wd4701 /wd4244 /wd4706 /wd4101 /wd4714 /FC /errorReport:queue /wd4100 /wd4512 /wd4127 H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\generated\qrenderdoc_module_python.cxx
+         qrenderdoc_module_python.cxx
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\CL.exe /c /IH:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\..\..\ /IH:\tmp\renderdoc\\qrenderdoc\3rdparty\python\include /IH:\tmp\renderdoc\\renderdoc\api\replay /Zi /nologo /W4 /WX /diagnostics:column /MP /Od /D RENDERDOC_PLATFORM_WIN32 /D WIN32 /D NDEBUG /D _WINDOWS /D _USRDLL /D WIN64 /D _WINDLL /D _UNICODE /D UNICODE /Gm- /EHsc /MD /GS- /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR- /Fo"H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\\" /Fd"H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\vc143.pdb" /external:W4 /Gd /TP /wd4127 /wd4189 /wd4456 /wd4459 /wd4701 /wd4244 /wd4706 /wd4101 /wd4714 /FC /errorReport:queue /bigobj /wd4100 /wd4512 /wd4127 H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\generated\renderdoc_module_python.cxx
+         renderdoc_module_python.cxx
+    21>Link:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\link.exe /ERRORREPORT:QUEUE /OUT:"H:\tmp\renderdoc\x64\Development\pymodules\renderdoc.pyd" /INCREMENTAL:NO /NOLOGO H:\tmp\renderdoc\\qrenderdoc\3rdparty\python\x64\python36.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"H:\tmp\renderdoc\x64\Development\pymodules\renderdoc.pdb" /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /LTCG:incremental /LTCGOUT:"H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\renderdoc.iobj" /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"H:\tmp\renderdoc\x64\Development\pymodules\renderdoc.lib" /MACHINE:X64 /DLL H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\pyrenderdoc_stub.obj
+         H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\renderdoc_module_python.obj
+         H:\tmp\renderdoc\x64\Development\renderdoc.lib
+           正在创建库 H:\tmp\renderdoc\x64\Development\pymodules\renderdoc.lib 和对象 H:\tmp\renderdoc\x64\Development\pymodules\renderdoc.exp
+         正在生成代码
+         Not all modules are compiled with -Gy (function comdat), build without incremental LTCG.
+         已完成代码的生成
+         pyrenderdoc_module.vcxproj -> H:\tmp\renderdoc\x64\Development\pymodules\renderdoc.pyd
+       _CopyOutOfDateSourceItemsToOutputDirectory:
+       正在跳过目标“_CopyOutOfDateSourceItemsToOutputDirectory”，因为所有输出文件相对于输入文件而言都是最新的。
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\pyrender.A8998B2D.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\pyrenderdoc_module\pyrender.A8998B2D.tlog\pyrenderdoc_module.lastbuildstate”执行 Touch 任务。
+       PythonNotOverridden:
+         Built against default bundled python
+    21>已完成生成项目“H:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\pyrenderdoc_module.vcxproj”(默认目标)的操作。
+    22>Link:
+         C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\link.exe /ERRORREPORT:QUEUE /OUT:"H:\tmp\renderdoc\x64\Development\pymodules\qrenderdoc.pyd" /INCREMENTAL:NO /NOLOGO H:\tmp\renderdoc\\qrenderdoc\3rdparty\python\x64\python36.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"H:\tmp\renderdoc\x64\Development\pymodules\qrenderdoc.pdb" /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /LTCGOUT:"H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\qrenderdoc.iobj" /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"H:\tmp\renderdoc\x64\Development\pymodules\qrenderdoc.lib" /MACHINE:X64 /DLL H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\pyrenderdoc_stub.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\qrenderdoc_stub.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\qrenderdoc_module_python.obj
+         H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\renderdoc_module_python.obj
+         H:\tmp\renderdoc\x64\Development\renderdoc.lib
+           正在创建库 H:\tmp\renderdoc\x64\Development\pymodules\qrenderdoc.lib 和对象 H:\tmp\renderdoc\x64\Development\pymodules\qrenderdoc.exp
+         qrenderdoc_module.vcxproj -> H:\tmp\renderdoc\x64\Development\pymodules\qrenderdoc.pyd
+       _CopyOutOfDateSourceItemsToOutputDirectory:
+       正在跳过目标“_CopyOutOfDateSourceItemsToOutputDirectory”，因为所有输出文件相对于输入文件而言都是最新的。
+       FinalizeBuildStatus:
+         正在删除文件“H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\qrenderd.61157930.tlog\unsuccessfulbuild”。
+         正在对“H:\tmp\renderdoc\x64\Development\obj\qrenderdoc_module\qrenderd.61157930.tlog\qrenderdoc_module.lastbuildstate”执行 Touch 任务。
+       PythonNotOverridden:
+         Built against default bundled python
+    22>已完成生成项目“H:\tmp\renderdoc\qrenderdoc\Code\pyrenderdoc\qrenderdoc_module.vcxproj”(默认目标)的操作。
+     1>已完成生成项目“H:\tmp\renderdoc\renderdoc.sln”(Build 个目标)的操作。
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:01:00.82
